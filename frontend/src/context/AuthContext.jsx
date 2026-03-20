@@ -10,7 +10,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      api.get('/users/profile')
+      api.get('/api/profile')   // ✅ changed
         .then(res => setUser(res.data))
         .catch(() => localStorage.removeItem('token'))
         .finally(() => setLoading(false));
@@ -20,15 +20,14 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password) => {
-    const res = await api.post('/users/login', { email, password });
+    const res = await api.post('/api/login', { email, password });  // ✅ changed
     localStorage.setItem('token', res.data.token);
     setUser(res.data.user);
     return res.data;
   };
 
   const register = async (data) => {
-    const res = await api.post('/users/register', data);
-    // Do not auto-login after register
+    const res = await api.post('/api/register', data);  // ✅ changed
     return res.data;
   };
 
