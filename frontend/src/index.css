@@ -1,0 +1,103 @@
+@import 'leaflet/dist/leaflet.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0B1220;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #E5E7EB;
+}
+
+/* ── Core card ── */
+.card {
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+
+.card-glow {
+  background: #111827;
+  border: 1px solid #22C55E;
+  border-radius: 16px;
+  box-shadow: 0 0 20px rgba(34,197,94,0.25), 0 4px 24px rgba(0,0,0,0.4);
+}
+
+/* ── Buttons ── */
+.btn-neon {
+  background: linear-gradient(135deg, #22C55E, #3B82F6, #8B5CF6);
+  color: #fff;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 13px;
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+}
+.btn-neon:hover { transform: scale(1.02); box-shadow: 0 0 20px rgba(59,130,246,0.5); }
+.btn-neon:disabled { opacity: 0.4; transform: none; cursor: not-allowed; }
+
+.btn-outline {
+  background: transparent;
+  color: #9CA3AF;
+  border: 1px solid #1F2937;
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.btn-outline:hover { border-color: #3B82F6; color: #3B82F6; }
+
+/* ── Badges ── */
+.badge-green  { background: rgba(34,197,94,0.15);  color: #22C55E;  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(34,197,94,0.3); }
+.badge-blue   { background: rgba(59,130,246,0.15); color: #3B82F6;  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(59,130,246,0.3); }
+.badge-purple { background: rgba(139,92,246,0.15); color: #8B5CF6;  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(139,92,246,0.3); }
+.badge-yellow { background: rgba(250,204,21,0.15); color: #FACC15;  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(250,204,21,0.3); }
+.badge-red    { background: rgba(239,68,68,0.15);  color: #EF4444;  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(239,68,68,0.3); }
+.badge-gray   { background: rgba(156,163,175,0.1); color: #9CA3AF;  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(156,163,175,0.2); }
+
+/* ── Inputs ── */
+.input-dark {
+  background: #0B1220;
+  border: 1px solid #1F2937;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #E5E7EB;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.input-dark:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+.input-dark::placeholder { color: #4B5563; }
+
+select.input-dark option { background: #111827; }
+
+/* ── Tab ── */
+.tab-bar { background: #0B1220; border: 1px solid #1F2937; border-radius: 12px; padding: 4px; display: inline-flex; gap: 2px; }
+.tab-item { padding: 6px 16px; border-radius: 9px; font-size: 13px; font-weight: 500; color: #6B7280; cursor: pointer; transition: all 0.2s; border: none; background: transparent; }
+.tab-item.active { background: #1F2937; color: #E5E7EB; }
+
+/* ── Stat mini card ── */
+.stat-card {
+  background: #111827;
+  border: 1px solid #1F2937;
+  border-radius: 14px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+.stat-card:hover { border-color: #374151; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #0B1220; }
+::-webkit-scrollbar-thumb { background: #1F2937; border-radius: 4px; }
+
+/* ── Leaflet dark override ── */
+.leaflet-container { background: #0B1220 !important; border-radius: 14px; }
+.leaflet-tile { filter: brightness(0.7) saturate(0.8); }
