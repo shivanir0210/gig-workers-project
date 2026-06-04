@@ -4,30 +4,30 @@ import api from '../api';
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [user, setUser]       = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token) {
-      api.get('/users/profile')   // ✅ FIXED
-        .then(res => setUser(res.data))
-        .catch(() => localStorage.removeItem('token'))
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    if (!token) { setLoading(false); return; }
+    api.get('/users/profile')
+      .then(res => setUser(res.data))
+      .catch(() => {
+        localStorage.removeItem('token');
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const login = async (email, password) => {
-    const res = await api.post('/users/login', { email, password }); // ✅ FIXED
+    const res = await api.post('/users/login', { email, password });
     localStorage.setItem('token', res.data.token);
     setUser(res.data.user);
     return res.data;
   };
 
   const register = async (data) => {
-    const res = await api.post('/users/register', data); // ✅ FIXED
+    const res = await api.post('/users/register', data);
     return res.data;
   };
 

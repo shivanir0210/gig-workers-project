@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { Shield, TrendingDown, CheckCircle, Star, MapPin, Bell } from 'lucide-react';
+import { Shield, TrendingDown, CheckCircle, Star, MapPin, Bell, Home, Briefcase, AlertTriangle } from 'lucide-react';
 
 const RISK_GLOW = { none: '#22C55E', low: '#FACC15', medium: '#F97316', high: '#EF4444', extreme: '#EF4444' };
 const RISK_LABEL = { none: 'badge-green', low: 'badge-yellow', medium: 'badge-yellow', high: 'badge-red', extreme: 'badge-red' };
@@ -16,6 +16,8 @@ export default function Dashboard() {
   const [paymentStats, setPaymentStats] = useState(null);
   const [gps, setGps] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [locationStatus, setLocationStatus] = useState([]);
+  const [locationAlerts, setLocationAlerts] = useState([]);
   const watchRef = useRef(null);
 
   useEffect(() => {
@@ -35,6 +37,12 @@ export default function Dashboard() {
     api.get('/payments/stats').then(r => setPaymentStats(r.data)).catch(() => {});
     api.post('http://localhost:8000/income-prediction', { city: user.location.city, weeklyIncome: user.weeklyIncome })
       .then(r => setPrediction(r.data)).catch(() => {});
+
+    // Work Location Alert System
+    api.get('/alerts/location-status').then(r => setLocationStatus(r.data)).catch(() => {});
+    api.post('/alerts/check').then(r => {
+      if (r.data.alerts?.length > 0) setLocationAlerts(r.data.alerts);
+    }).catch(() => {});
 
     // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
@@ -88,6 +96,42 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Verification Banner */}
+      {user?.verificationStatus === 'pending' && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium"
+          style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#FCD34D' }}>
+          ⏳ Your account is pending admin verification. You cannot purchase policies or file claims until approved.
+        </div>
+      )}
+      {user?.verificationStatus === 'rejected' && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium"
+          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#FCA5A5' }}>
+          ❌ Your verification was rejected. Contact support.
+        </div>
+      )}
+      {user?.fraudStatus === 'blocked' && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium"
+          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#FCA5A5' }}>
+          🚫 Your account has been blocked due to suspicious activity.
+        </div>
+      )}
+
+      {/* Work Location Alerts */}
+      {locationAlerts.length > 0 && (
+        <div className="space-y-2">
+          {locationAlerts.map((a, i) => (
+            <div key={i} className="flex items-start gap-3 px-4 py-3 rounded-xl text-sm"
+              style={{ background: a.severity === 'extreme' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.1)', border: `1px solid ${a.severity === 'extreme' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`, color: a.severity === 'extreme' ? '#FCA5A5' : '#FCD34D' }}>
+              <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">{a.message}</p>
+                <p className="text-xs mt-0.5 opacity-70">{a.cityType === 'work' ? '📍 Work Location' : '🏠 Home Location'} · {new Date(a.timestamp).toLocaleTimeString()}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Notifications */}
       {notifications.length > 0 && (
@@ -174,6 +218,62 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Work Location Status Widget */}
+      {locationStatus.length > 0 && (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <MapPin size={14} style={{ color: '#3B82F6' }} />
+            <h3 className="text-sm font-semibold text-white">Work Location Status</h3>
+            <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: 'rgba(59,130,246,0.1)', color: '#3B82F6' }}>Live</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {locationStatus.map((loc) => {
+              const riskColor = RISK_GLOW[loc.disruptionLevel] || '#22C55E';
+              return (
+                <div key={loc.city} className="rounded-xl p-4" style={{ background: '#0B1220', border: `1px solid ${riskColor}30` }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {loc.cityType === 'home' ? <Home size={13} style={{ color: '#8B5CF6' }} /> : <Briefcase size={13} style={{ color: '#3B82F6' }} />}
+                      <span className="text-xs font-semibold" style={{ color: loc.cityType === 'home' ? '#8B5CF6' : '#3B82F6' }}>
+                        {loc.cityType === 'home' ? 'HOME' : 'WORK'}
+                      </span>
+                    </div>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${riskColor}20`, color: riskColor }}>
+                      {loc.disruptionLevel?.toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-base font-bold text-white mb-3">{loc.city}</p>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {[
+                      { label: 'Rain', value: `${loc.weather?.rainfall || 0}mm`, alert: loc.weather?.rainfall > 50 },
+                      { label: 'AQI',  value: loc.aqi || 0,                       alert: loc.aqi > 200 },
+                      { label: 'Temp', value: `${loc.weather?.temperature || 0}°C`, alert: loc.weather?.temperature > 42 }
+                    ].map(({ label, value, alert }) => (
+                      <div key={label} className="rounded-lg p-2 text-center" style={{ background: alert ? 'rgba(239,68,68,0.1)' : '#111827', border: `1px solid ${alert ? 'rgba(239,68,68,0.3)' : '#1F2937'}` }}>
+                        <p className="text-xs" style={{ color: '#4B5563' }}>{label}</p>
+                        <p className="text-xs font-bold mt-0.5" style={{ color: alert ? '#EF4444' : '#E5E7EB' }}>{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {loc.disruptionDays > 0 && (
+                    <div className="rounded-lg p-2" style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.15)' }}>
+                      <div className="flex justify-between text-xs">
+                        <span style={{ color: '#6B7280' }}>Est. Weekly Loss</span>
+                        <span style={{ color: '#EF4444', fontWeight: 'bold' }}>₹{loc.estimatedWeeklyLoss}</span>
+                      </div>
+                      <div className="flex justify-between text-xs mt-1">
+                        <span style={{ color: '#6B7280' }}>Disruption Prob.</span>
+                        <span style={{ color: '#F97316', fontWeight: 'bold' }}>{loc.disruptionProbability}%</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Active Policy */}
       {policy && (

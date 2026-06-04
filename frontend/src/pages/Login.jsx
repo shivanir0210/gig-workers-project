@@ -12,11 +12,16 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('Login button clicked', form.email);
     setLoading(true);
     try {
-      await login(form.email, form.password);
+      console.log('Submitting login request...');
+      const data = await login(form.email, form.password);
+      console.log('Login response:', data);
+      console.log('Navigating to dashboard');
       navigate('/dashboard');
     } catch (err) {
+      console.error('Login error:', err);
       toast.error(err.response?.data?.error || 'Invalid credentials');
     } finally { setLoading(false); }
   };
