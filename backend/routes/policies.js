@@ -16,6 +16,10 @@ router.post('/create', auth, async (req, res) => {
   try {
     const { planType = 'standard', customThresholds } = req.body;
     const user = await User.findById(req.user.id);
+    if (user.verificationStatus !== 'approved')
+      return res.status(403).json({ error: 'Account not verified. Await admin approval.' });
+    if (user.fraudStatus === 'blocked')
+      return res.status(403).json({ error: 'Account blocked due to fraud.' });
     const plan = PLANS[planType] || PLANS.standard;
     const existing = await Policy.findOne({ userId: user._id, status: 'active' });
     if (existing) return res.status(400).json({ error: 'Active policy already exists' });

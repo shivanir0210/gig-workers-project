@@ -6,51 +6,50 @@ import { Shield } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
-  const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '' });
+  const navigate  = useNavigate();
+  const [form, setForm]     = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Login button clicked', form.email);
     setLoading(true);
     try {
-      console.log('Submitting login request...');
-      const data = await login(form.email, form.password);
-      console.log('Login response:', data);
-      console.log('Navigating to dashboard');
+      await login(form.email, form.password);
       navigate('/dashboard');
     } catch (err) {
-      console.error('Login error:', err);
       toast.error(err.response?.data?.error || 'Invalid credentials');
     } finally { setLoading(false); }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: '#0B1220' }}>
-      {/* Glow blobs */}
-      <div className="fixed top-1/4 left-1/4 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle,#3B82F6,transparent)' }} />
-      <div className="fixed bottom-1/4 right-1/4 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle,#8B5CF6,transparent)' }} />
+    <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: '#0B1220' }}>
+      <div className="fixed top-1/4 left-1/4 w-64 h-64 md:w-96 md:h-96 rounded-full opacity-10 blur-3xl pointer-events-none"
+        style={{ background: 'radial-gradient(circle,#3B82F6,transparent)' }} />
+      <div className="fixed bottom-1/4 right-1/4 w-64 h-64 md:w-96 md:h-96 rounded-full opacity-10 blur-3xl pointer-events-none"
+        style={{ background: 'radial-gradient(circle,#8B5CF6,transparent)' }} />
 
-      <div className="card w-full max-w-sm p-8 relative z-10">
-        <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+      <div className="card w-full max-w-sm p-6 sm:p-8 relative z-10">
+        <div className="text-center mb-7">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
             style={{ background: 'linear-gradient(135deg,#22C55E,#3B82F6,#8B5CF6)', boxShadow: '0 0 24px rgba(59,130,246,0.4)' }}>
-            <Shield size={24} className="text-white" />
+            <Shield size={22} className="text-white" />
           </div>
           <h1 className="text-xl font-bold text-white">Sign in to GigShield</h1>
           <p className="text-sm mt-1" style={{ color: '#6B7280' }}>AI-Powered Parametric Insurance</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {[{ key: 'email', label: 'Email Address', type: 'email' }, { key: 'password', label: 'Password', type: 'password' }].map(({ key, label, type }) => (
+          {[{ key: 'email', label: 'Email Address', type: 'email' },
+            { key: 'password', label: 'Password', type: 'password' }].map(({ key, label, type }) => (
             <div key={key}>
               <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#6B7280' }}>{label}</label>
-              <input type={type} required value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })}
-                className="input-dark" />
+              <input type={type} required value={form[key]}
+                onChange={e => setForm({ ...form, [key]: e.target.value })}
+                className="input-dark w-full" style={{ fontSize: '16px' }} />
             </div>
           ))}
-          <button type="submit" disabled={loading} className="btn-neon w-full mt-2">
+          <button type="submit" disabled={loading} className="btn-neon w-full mt-2"
+            style={{ minHeight: '44px' }}>
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>

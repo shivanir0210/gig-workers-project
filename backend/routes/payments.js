@@ -8,15 +8,23 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'placeholder_secret'
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-const isMock = !process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID === 'your_razorpay_key_id';
+function assertRazorpayConfigured() {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    const e = new Error('RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are missing');
+    e.code = 'RAZORPAY_NOT_CONFIGURED';
+    throw e;
+  }
+}
 
 // Create Razorpay order for premium payment
 router.post('/create-order', auth, async (req, res) => {
   try {
+    assertRazorpayConfigured();
+
     const { planType } = req.body;
     const user = await User.findById(req.user.id);
 
@@ -25,89 +33,75 @@ router.post('/create-order', auth, async (req, res) => {
     const amount = Math.round(user.weeklyPremium * multiplier);
 
     if (amount <= 0) {
-      return res.json({
-        orderId: `order_free_${Date.now()}`,
-        amount: 0,
-        currency: 'INR',
-        paymentId: 'free',
-        isFree: true
-      });
+      return res.status(400).json({ error: 'Invalid premium amount' });
     }
 
-    let orderId;
-    let fallbackToMock = isMock;
-    if (!fallbackToMock) {
-      try {
-        console.log(`[Payment] Creating Razorpay order for Rs ${amount}`);
-        const order = await razorpay.orders.create({
-          amount: amount * 100, // paise
-          currency: 'INR',
-          receipt: `rcpt_${Date.now()}`,
-          notes: { userId: user._id.toString(), planType }
-        });
-        orderId = order.id;
-      } catch (rzpErr) {
-        console.warn('Razorpay order creation failed (likely invalid keys). Falling back to mock.');
-        fallbackToMock = true;
-      }
-    }
-
-    if (fallbackToMock) {
-      orderId = `order_mock_${Date.now()}`;
-    }
+    const order = await razorpay.orders.create({
+      amount: amount * 100, // paise
+      currency: 'INR',
+      receipt: `rcpt_${Date.now()}`,
+      notes: { userId: user._id.toString(), planType }
+    });
 
     const payment = new Payment({
       userId: user._id,
       amount,
       type: 'premium',
+      paymentStatus: 'created',
       status: 'created',
-      razorpayOrderId: orderId,
+      razorpayOrderId: order.id,
       description: `Weekly premium - ${planType} plan`
     });
     await payment.save();
 
     res.json({
-      orderId,
+      orderId: order.id,
       amount,
       currency: 'INR',
       paymentId: payment._id,
-      key: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-      isMock: fallbackToMock
+      key: process.env.RAZORPAY_KEY_ID
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const statusCode = err.code === 'RAZORPAY_NOT_CONFIGURED' ? 500 : 500;
+    res.status(statusCode).json({ error: err.message });
   }
 });
 
 // Verify payment and activate policy
 router.post('/verify', auth, async (req, res) => {
   try {
-    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, paymentId, planType, isMock } = req.body;
+    assertRazorpayConfigured();
+
+    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, paymentId, planType } = req.body;
 
     const payment = await Payment.findById(paymentId);
     if (!payment) return res.status(404).json({ error: 'Payment record not found' });
 
-    // Signature verification (skip for mock)
-    if (!isMock) {
-      const body = razorpayOrderId + '|' + razorpayPaymentId;
-      const expectedSig = crypto
-        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-        .update(body)
-        .digest('hex');
-      if (expectedSig !== razorpaySignature) {
-        payment.status = 'failed';
-        await payment.save();
-        return res.status(400).json({ error: 'Payment verification failed' });
-      }
+    // Strict signature verification (Razorpay standard)
+    const body = razorpayOrderId + '|' + razorpayPaymentId;
+    const expectedSig = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest('hex');
+
+    if (expectedSig !== razorpaySignature) {
+      payment.paymentStatus = 'failed';
+      payment.status = 'failed';
+      await payment.save();
+      return res.status(400).json({ error: 'Payment verification failed' });
     }
 
+    // Mark payment as success
+    payment.paymentStatus = 'success';
     payment.status = 'success';
-    payment.razorpayPaymentId = razorpayPaymentId || `pay_mock_${Date.now()}`;
-    payment.razorpaySignature = razorpaySignature || 'mock_sig';
-    payment.paidAt = new Date();
+    payment.razorpayPaymentId = razorpayPaymentId;
+    payment.paymentSignature = razorpaySignature;
+    payment.razorpaySignature = razorpaySignature; // backward compat
+    payment.paymentDate = new Date();
+    payment.paidAt = new Date(); // backward compat
     await payment.save();
 
-    // Activate policy
+    // Activate policy only after successful payment
     const user = await User.findById(req.user.id);
     const PLANS = {
       basic: { name: 'Basic Shield', multiplier: 1, coverageMultiplier: 0.5, coverageTypes: ['rainfall', 'aqi'] },
@@ -125,6 +119,8 @@ router.post('/verify', auth, async (req, res) => {
         coverageAmount: Math.round(user.weeklyIncome * plan.coverageMultiplier),
         coverageType: plan.coverageTypes,
         thresholds: { rainfall: 50, aqi: 200, temperature: 42 },
+        status: 'active',
+        startDate: new Date(),
         endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       });
       await policy.save();
@@ -133,7 +129,7 @@ router.post('/verify', auth, async (req, res) => {
       return res.json({ success: true, policy, payment });
     }
 
-    res.json({ success: true, payment });
+    return res.json({ success: true, payment });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
