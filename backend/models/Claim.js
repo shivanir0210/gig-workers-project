@@ -21,7 +21,7 @@ const claimSchema = new mongoose.Schema({
   actualIncomeLoss:{ type: Number, default: 0 },
 
   payoutAmount: { type: Number, required: true },
-  status:       { type: String, enum: ['pending', 'approved', 'paid', 'rejected'], default: 'pending' },
+  status:       { type: String, enum: ['pending', 'approved', 'paid', 'rejected', 'investigating'], default: 'pending' },
   fraudScore:   { type: Number, default: 0 },
 
   validationDetails: {
@@ -31,7 +31,10 @@ const claimSchema = new mongoose.Schema({
     platformPaused:   { type: Boolean, default: false },
     duplicateCheck:   { type: Boolean, default: true },
     anomalyScore:     { type: Number, default: 0 },
-    riskZoneId:       { type: mongoose.Schema.Types.ObjectId }
+    riskZoneId:       { type: mongoose.Schema.Types.ObjectId },
+    dualCityVerified: { type: Boolean, default: false },
+    homeCityData:     { city: String, rainfall: Number, aqi: Number, temperature: Number },
+    workCityData:     { city: String, rainfall: Number, aqi: Number, temperature: Number }
   },
 
   razorpayPaymentId: { type: String },

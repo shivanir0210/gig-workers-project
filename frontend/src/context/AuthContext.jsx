@@ -12,15 +12,20 @@ export function AuthProvider({ children }) {
     if (!token) { setLoading(false); return; }
     api.get('/users/profile')
       .then(res => setUser(res.data))
-      .catch(() => {
-        localStorage.removeItem('token');
-        setUser(null);
-      })
+      .catch(() => { localStorage.removeItem('token'); setUser(null); })
       .finally(() => setLoading(false));
   }, []);
 
   const login = async (email, password) => {
     const res = await api.post('/users/login', { email, password });
+    if (res.data.user.role !== 'user') throw new Error('Use admin login');
+    localStorage.setItem('token', res.data.token);
+    setUser(res.data.user);
+    return res.data;
+  };
+
+  const adminLogin = async (email, password) => {
+    const res = await api.post('/users/admin/login', { email, password });
     localStorage.setItem('token', res.data.token);
     setUser(res.data.user);
     return res.data;
@@ -32,12 +37,14 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    const role = user?.role;
     localStorage.removeItem('token');
     setUser(null);
+    return role;
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, setUser, loading, login, adminLogin, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

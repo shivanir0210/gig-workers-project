@@ -5,6 +5,7 @@ const Payout   = require('../models/Payout');
 const Policy   = require('../models/Policy');
 const User     = require('../models/User');
 const auth     = require('../middleware/auth');
+const { checkDualCityEligibility } = require('../services/weatherService');
 const router   = express.Router();
 
 // ── Submit claim ──────────────────────────────────────────────────────────────
@@ -40,6 +41,15 @@ router.post('/submit', auth, async (req, res) => {
       return res.status(429).json({ error: 'Claim limit reached (3 per week).' });
     }
 
+    // Gate 6: dual-city eligibility — BOTH home and work city must be affected
+    const eligibility = await checkDualCityEligibility(user);
+    if (!eligibility.eligible) {
+      return res.status(400).json({
+        error: `Not eligible: ${eligibility.reason}`,
+        eligibility
+      });
+    }
+
     const { triggerType, triggerValue, threshold, affectedCity, cityType,
             expectedIncome, actualIncome } = req.body;
 
@@ -68,7 +78,12 @@ router.post('/submit', auth, async (req, res) => {
       actualIncomeLoss: incomeLoss,
       payoutAmount,
       fraudScore: claimFraudScore,
-      validationDetails: { gpsVerified: !!user.currentGps?.lat }
+      validationDetails: {
+        gpsVerified: !!user.currentGps?.lat,
+        dualCityVerified: true,
+        homeCityData: { city: eligibility.homeCity, rainfall: eligibility.homeData.weather.rainfall, aqi: eligibility.homeData.aqi, temperature: eligibility.homeData.weather.temperature },
+        workCityData: { city: eligibility.workCity, rainfall: eligibility.workData.weather.rainfall, aqi: eligibility.workData.aqi, temperature: eligibility.workData.weather.temperature }
+      }
     });
 
     // Raise user fraud score if pattern detected
@@ -120,6 +135,10 @@ router.post('/process-payout/:claimId', auth, async (req, res) => {
       return res.status(400).json({ error: 'Claim not eligible for payout' });
 
     const user = await User.findById(req.user.id);
+    if (user.verificationStatus !== 'approved') {
+      return res.status(403).json({ error: 'Account not verified. Await admin approval.' });
+    }
+
     const existing = await Payout.findOne({ claimId: claim._id, status: { $in: ['success', 'processing'] } });
     if (existing) return res.status(400).json({ error: 'Payout already processed' });
 

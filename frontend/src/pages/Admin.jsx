@@ -10,8 +10,10 @@ const TABS       = ['Overview','Verification','Fraud','Claims','Analytics'];
 const FRAUD_COLOR  = { safe:'#22C55E', review:'#3B82F6', suspicious:'#F97316', blocked:'#EF4444' };
 const VERIFY_COLOR = { pending:'#FACC15', approved:'#22C55E', rejected:'#EF4444' };
 
-export default function Admin() {
-  const [tab,              setTab]              = useState('Overview');
+export default function Admin({ tab: initialTab }) {
+  const backendBase = api.defaults.baseURL.replace('/api', '');
+  const tabMap = { overview:'Overview', verification:'Verification', fraud:'Fraud', claims:'Claims', analytics:'Analytics', users:'Overview', settings:'Overview' };
+  const [tab, setTab] = useState(tabMap[initialTab] || 'Overview');
   const [overview,         setOverview]         = useState(null);
   const [pendingWorkers,   setPendingWorkers]   = useState([]);
   const [fraudUsers,       setFraudUsers]       = useState([]);
@@ -21,23 +23,26 @@ export default function Admin() {
   const [platformAnalytics,setPlatformAnalytics]= useState([]);
   const [pool,             setPool]             = useState(null);
   const [users,            setUsers]            = useState([]);
+  const [adminStats,       setAdminStats]       = useState(null);
   const [loading,          setLoading]          = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.get('/admin/overview').catch(() => ({ data:null })),
       api.get('/admin/pending-workers').catch(() => ({ data:[] })),
-      api.get('/admin/fraud-users').catch(() => ({ data:[] })),
+      api.get('/admin/fraud-analysis').catch(() => ({ data:[] })),
       api.get('/admin/fraud-claims').catch(() => ({ data:[] })),
       api.get('/admin/all-claims').catch(() => ({ data:[] })),
       api.get('/admin/claim-analytics').catch(() => ({ data:null })),
       api.get('/admin/platform-analytics').catch(() => ({ data:[] })),
       api.get('/admin/pool').catch(() => ({ data:null })),
-      api.get('/admin/users?limit=15').catch(() => ({ data:{ users:[] } }))
-    ]).then(([ov,pw,fu,fc,ac,ca,pa,pl,us]) => {
+      api.get('/admin/users?limit=15').catch(() => ({ data:{ users:[] } })),
+      api.get('/analytics/admin-stats').catch(() => ({ data:null }))
+    ]).then(([ov,pw,fu,fc,ac,ca,pa,pl,us,ast]) => {
       setOverview(ov.data); setPendingWorkers(pw.data); setFraudUsers(fu.data);
       setFraudClaims(fc.data); setAllClaims(ac.data); setClaimAnalytics(ca.data);
       setPlatformAnalytics(pa.data); setPool(pl.data); setUsers(us.data.users||[]);
+      setAdminStats(ast ? ast.data : null);
       setLoading(false);
     });
   }, []);
@@ -52,11 +57,24 @@ export default function Admin() {
     } catch { toast.error('Failed'); }
   };
 
+  const updateFraudStatus = async (userId, status, reason) => {
+    try {
+      await api.put(`/admin/update-fraud/${userId}`, { fraudStatus: status, fraudReason: reason });
+      toast.success(`User marked as ${status}`);
+      const fu = await api.get('/admin/fraud-analysis');
+      setFraudUsers(fu.data);
+      const ov = await api.get('/admin/overview');
+      setOverview(ov.data);
+    } catch { toast.error('Failed to update fraud status'); }
+  };
+
   const claimAction = async (id, status) => {
     try {
       await api.put(`/admin/claim-action/${id}`, { status });
       setAllClaims(c => c.map(x => x._id===id?{...x,status}:x));
-      toast.success(`Claim ${status}`);
+      toast.success(`Claim set to ${status}`);
+      const ov = await api.get('/admin/overview');
+      setOverview(ov.data);
     } catch { toast.error('Failed'); }
   };
 
@@ -142,10 +160,19 @@ export default function Admin() {
               <div className="mt-4">
                 <div className="flex justify-between text-xs mb-1" style={{ color:'#4B5563' }}>
                   <span>Pool Health</span>
-                  <span>{pool.totalPremiumCollected>0?Math.round((pool.availablePool/pool.totalPremiumCollected)*100):100}%</span>
+                  <span>
+                    {(() => {
+                      const ratio = pool.totalPremiumCollected > 0 ? Math.round((pool.availablePool / pool.totalPremiumCollected) * 100) : 100;
+                      const rating = ratio > 70 ? 'Excellent' : ratio > 45 ? 'Good' : ratio > 25 ? 'Moderate' : 'Critical';
+                      return `${ratio}% (${rating})`;
+                    })()}
+                  </span>
                 </div>
                 <div className="h-2 rounded-full" style={{ background:'#1F2937' }}>
-                  <div className="h-2 rounded-full" style={{ width:`${pool.totalPremiumCollected>0?Math.round((pool.availablePool/pool.totalPremiumCollected)*100):100}%`, background:'linear-gradient(90deg,#22C55E,#3B82F6)' }}/>
+                  <div className="h-2 rounded-full" style={{
+                    width:`${pool.totalPremiumCollected > 0 ? Math.round((pool.availablePool / pool.totalPremiumCollected) * 100) : 100}%`,
+                    background: pool.totalPremiumCollected > 0 && (pool.availablePool / pool.totalPremiumCollected) < 0.3 ? '#EF4444' : 'linear-gradient(90deg,#22C55E,#3B82F6)'
+                  }}/>
                 </div>
               </div>
             </div>
@@ -213,6 +240,34 @@ export default function Admin() {
                     Home: {u.homeCity==='Other'?u.customHomeCity:u.homeCity} · Work: {u.workCity==='Other'?u.customWorkCity:u.workCity}
                   </p>
                   <p className="text-xs" style={{ color:'#6B7280' }}>Aadhaar: {u.aadhaarNumber||'—'}</p>
+                  
+                  {/* Verification document uploads */}
+                  <div className="mt-2 flex gap-2 flex-wrap">
+                    {u.aadhaarCardUrl ? (
+                      <a href={`${backendBase}${u.aadhaarCardUrl}`} target="_blank" rel="noreferrer" 
+                        className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20">
+                        View Aadhaar Card
+                      </a>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-gray-500/10 text-gray-400 border border-gray-500/20">Aadhaar Missing</span>
+                    )}
+                    {u.workerIdCardUrl ? (
+                      <a href={`${backendBase}${u.workerIdCardUrl}`} target="_blank" rel="noreferrer" 
+                        className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20">
+                        View Worker ID
+                      </a>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-gray-500/10 text-gray-400 border border-gray-500/20">Worker ID Missing</span>
+                    )}
+                    {u.platformScreenshotUrl ? (
+                      <a href={`${backendBase}${u.platformScreenshotUrl}`} target="_blank" rel="noreferrer" 
+                        className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20">
+                        View Profile Screen
+                      </a>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-gray-500/10 text-gray-400 border border-gray-500/20">Screenshot Missing</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0 flex-wrap">
                   <button onClick={()=>verifyWorker(u._id,'approved')}
@@ -241,10 +296,33 @@ export default function Admin() {
               <div className="space-y-3">
                 {fraudUsers.map(u => (
                   <div key={u._id} className="card p-4 flex items-start justify-between flex-wrap gap-3">
-                    <div className="min-w-0">
+                    <div className="min-w-0 space-y-1">
                       <p className="font-semibold text-white text-sm">{u.name}</p>
-                      <p className="text-xs mt-0.5 truncate" style={{ color:'#9CA3AF' }}>{u.email} · {u.platform}</p>
-                      {u.fraudReason&&<p className="text-xs mt-1" style={{ color:'#F97316' }}>⚠ {u.fraudReason}</p>}
+                      <p className="text-xs truncate" style={{ color:'#9CA3AF' }}>{u.email} &middot; {u.platform}</p>
+                      {u.phone && <p className="text-[11px]" style={{ color: '#4B5563' }}>Phone: {u.phone} {u.workerId && `· Worker ID: ${u.workerId}`}</p>}
+                      {u.fraudReason && <p className="text-xs mt-1 text-orange-400">⚠ {u.fraudReason}</p>}
+                      
+                      {/* Action buttons */}
+                      <div className="flex gap-1.5 mt-2 flex-wrap">
+                        {u.fraudStatus !== 'safe' && (
+                          <button onClick={() => updateFraudStatus(u._id, 'safe', 'Dismissed by admin')}
+                            className="text-[10px] px-2 py-1 rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 font-bold transition">
+                            Dismiss / Safe
+                          </button>
+                        )}
+                        {u.fraudStatus !== 'review' && (
+                          <button onClick={() => updateFraudStatus(u._id, 'review', 'Anomalies under investigation')}
+                            className="text-[10px] px-2 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 font-bold transition">
+                            Investigate
+                          </button>
+                        )}
+                        {u.fraudStatus !== 'blocked' && (
+                          <button onClick={() => updateFraudStatus(u._id, 'blocked', 'Blocked due to policy breach / duplicates')}
+                            className="text-[10px] px-2 py-1 rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 font-bold transition">
+                            Block User
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <div className="text-center">
@@ -302,23 +380,63 @@ export default function Admin() {
           ) : allClaims.map(c => (
             <div key={c._id} className="card p-3 sm:p-4">
               <div className="flex items-start justify-between flex-wrap gap-3">
-                <div className="space-y-0.5 flex-1 min-w-0">
-                  <p className="font-semibold text-white text-sm">{c.userId?.name}</p>
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <div>
+                    <p className="font-semibold text-white text-sm">{c.userId?.name || 'Unknown Worker'}</p>
+                    <p className="text-[10px] text-gray-500 uppercase">Claim ID: {c._id}</p>
+                  </div>
+                  
                   <p className="text-xs truncate" style={{ color:'#9CA3AF' }}>{c.userId?.email}</p>
-                  <p className="text-xs" style={{ color:'#6B7280' }}>{c.triggerType} · {c.affectedCity}</p>
-                  <p className="text-xs font-semibold" style={{ color:'#22C55E' }}>₹{c.payoutAmount}</p>
-                  <p className="text-xs" style={{ color:'#4B5563' }}>{new Date(c.triggeredAt).toLocaleString()}</p>
+                  <p className="text-xs" style={{ color:'#6B7280' }}>
+                    <span className="font-semibold text-gray-400 uppercase tracking-wide text-[10px]">{c.triggerType}</span> &middot; {c.affectedCity}
+                  </p>
+                  <p className="text-xs font-semibold" style={{ color:'#22C55E' }}>Payout Target: ₹{c.payoutAmount}</p>
+
+                  {/* Expected / Actual Loss Details Widget */}
+                  <div className="grid grid-cols-3 gap-2 p-2 rounded-xl text-center" style={{ background: '#0B1220', border: '1px solid #1F2937', maxWidth: '380px' }}>
+                    <div>
+                      <p className="text-[9px] text-gray-500 uppercase font-semibold">Expected Income</p>
+                      <p className="text-xs font-bold text-gray-200">₹{c.expectedIncome || c.userId?.averageDailyIncome || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-gray-500 uppercase font-semibold">Actual Income</p>
+                      <p className="text-xs font-bold text-gray-200">₹{c.actualIncome || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-gray-500 uppercase font-semibold">Income Loss</p>
+                      <p className="text-xs font-bold text-red-400">₹{c.actualIncomeLoss || Math.max(0, (c.expectedIncome || c.userId?.averageDailyIncome || 0) - (c.actualIncome || 0))}</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px]" style={{ color:'#4B5563' }}>{new Date(c.triggeredAt).toLocaleString()}</p>
                 </div>
+                
                 <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-                  {c.fraudScore>0&&<span className="text-xs px-2 py-0.5 rounded-full" style={{ background:'rgba(239,68,68,0.1)', color:'#EF4444' }}>F:{c.fraudScore}</span>}
+                  {c.fraudScore>0&&<span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background:'rgba(239,68,68,0.1)', color:'#EF4444' }}>Fraud Score: {c.fraudScore}</span>}
                   <span className="px-2 py-1 rounded-lg text-xs font-semibold"
-                    style={{ background:c.status==='paid'?'rgba(34,197,94,0.1)':c.status==='pending'?'rgba(250,204,21,0.1)':'rgba(239,68,68,0.1)', color:c.status==='paid'?'#22C55E':c.status==='pending'?'#FACC15':'#EF4444' }}>
+                    style={{
+                      background: c.status==='paid' || c.status==='approved' ? 'rgba(34,197,94,0.1)' : c.status==='pending' ? 'rgba(250,204,21,0.1)' : c.status==='investigating' ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)',
+                      color: c.status==='paid' || c.status==='approved' ? '#22C55E' : c.status==='pending' ? '#FACC15' : c.status==='investigating' ? '#3B82F6' : '#EF4444'
+                    }}>
                     {c.status.toUpperCase()}
                   </span>
-                  {c.status==='pending'&&(
+
+                  {(c.status==='pending' || c.status==='investigating') && (
                     <div className="flex gap-1">
-                      <button onClick={()=>claimAction(c._id,'approved')} className="p-1.5 rounded-lg" style={{ background:'rgba(34,197,94,0.15)', color:'#22C55E', minHeight:'36px', minWidth:'36px' }}><CheckCircle size={14}/></button>
-                      <button onClick={()=>claimAction(c._id,'rejected')} className="p-1.5 rounded-lg" style={{ background:'rgba(239,68,68,0.15)', color:'#EF4444', minHeight:'36px', minWidth:'36px' }}><XCircle size={14}/></button>
+                      <button onClick={()=>claimAction(c._id,'approved')} className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                        style={{ background: 'rgba(34,197,94,0.15)', color: '#22C55E', border: '1px solid rgba(34,197,94,0.3)', minHeight: '36px' }}>
+                        Approve
+                      </button>
+                      <button onClick={()=>claimAction(c._id,'rejected')} className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                        style={{ background: 'rgba(239,68,68,0.15)', color: '#EF4444', border: '1px solid rgba(239,68,68,0.3)', minHeight: '36px' }}>
+                        Reject
+                      </button>
+                      {c.status !== 'investigating' && (
+                        <button onClick={()=>claimAction(c._id,'investigating')} className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                          style={{ background: 'rgba(59,130,246,0.15)', color: '#3B82F6', border: '1px solid rgba(59,130,246,0.3)', minHeight: '36px' }}>
+                          Investigate
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -330,61 +448,149 @@ export default function Admin() {
 
       {/* Analytics */}
       {tab==='Analytics' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
-          {claimAnalytics?.byTrigger?.length>0&&(
-            <div className="card p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-white mb-3 sm:mb-4">Claims by Trigger</h3>
-              <ResponsiveContainer width="100%" height={160}>
-                <BarChart data={claimAnalytics.byTrigger} barSize={24}>
-                  <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
-                  <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
-                  <Tooltip contentStyle={TTStyle}/>
-                  <Bar dataKey="count" name="Claims" radius={[4,4,0,0]}>{claimAnalytics.byTrigger.map((_,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}</Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          {claimAnalytics?.byStatus?.length>0&&(
-            <div className="card p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-white mb-3 sm:mb-4">Claim Status</h3>
-              <ResponsiveContainer width="100%" height={160}>
-                <PieChart>
-                  <Pie data={claimAnalytics.byStatus} dataKey="count" nameKey="_id" cx="50%" cy="50%" outerRadius={60}
-                    label={({ _id, count })=>`${_id}:${count}`} labelLine={false}>
-                    {claimAnalytics.byStatus.map((_,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}
-                  </Pie>
-                  <Tooltip contentStyle={TTStyle}/>
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          {platformAnalytics.length>0&&(
-            <div className="card p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-white mb-3 sm:mb-4">Users by Platform</h3>
-              <ResponsiveContainer width="100%" height={160}>
-                <BarChart data={platformAnalytics} barSize={28}>
-                  <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
-                  <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
-                  <Tooltip contentStyle={TTStyle}/>
-                  <Bar dataKey="count" name="Users" fill="#8B5CF6" radius={[4,4,0,0]}/>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          {claimAnalytics?.byCityType?.length>0&&(
-            <div className="card p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-white mb-3 sm:mb-4">Home vs Work City Claims</h3>
-              <div className="flex gap-3 flex-wrap">
-                {claimAnalytics.byCityType.map((c,i)=>(
-                  <div key={c._id} className="flex-1 rounded-xl p-3 sm:p-4 text-center" style={{ background:'#0B1220', border:'1px solid #1F2937', minWidth:100 }}>
-                    <p className="text-xs font-semibold uppercase mb-1" style={{ color:PIE_COLORS[i] }}>{c._id||'Other'}</p>
-                    <p className="text-xl font-bold text-white">{c.count}</p>
-                    <p className="text-xs mt-0.5" style={{ color:'#6B7280' }}>₹{c.totalPayout}</p>
-                  </div>
-                ))}
+        <div className="space-y-5">
+          
+          {/* Premium Analytics Charts */}
+          {adminStats?.premium && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+              <div className="card p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-white mb-2">Premium Collected (Daily)</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={adminStats.premium.daily} barSize={24}>
+                    <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={TTStyle}/>
+                    <Bar dataKey="total" name="Collected (₹)" fill="#3B82F6" radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="card p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-white mb-2">Premium Collected (Weekly)</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={adminStats.premium.weekly} barSize={24}>
+                    <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={TTStyle}/>
+                    <Bar dataKey="total" name="Collected (₹)" fill="#8B5CF6" radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="card p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-white mb-2">Premium Collected (Monthly)</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={adminStats.premium.monthly} barSize={24}>
+                    <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={TTStyle}/>
+                    <Bar dataKey="total" name="Collected (₹)" fill="#22C55E" radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="card p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-white mb-2">Premium Collected (Yearly)</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={adminStats.premium.yearly} barSize={24}>
+                    <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={TTStyle}/>
+                    <Bar dataKey="total" name="Collected (₹)" fill="#EF4444" radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
           )}
+
+          {/* Risk Analytics Hotspots */}
+          {adminStats?.risk && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              
+              {/* High Risk Cities */}
+              <div className="card p-4 space-y-2">
+                <h4 className="text-xs font-bold text-red-400 uppercase tracking-wide">High Risk Cities</h4>
+                {adminStats.risk.highRiskCities.length === 0 ? (
+                  <p className="text-xs text-gray-500 py-1">No active high risk cities.</p>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {adminStats.risk.highRiskCities.map(c => (
+                      <li key={c._id} className="flex justify-between text-gray-300 py-0.5 border-b border-gray-800/40">
+                        <span>{c._id}</span>
+                        <span className="font-semibold text-red-400 capitalize">{c.latestDisruption}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Flood Zones */}
+              <div className="card p-4 space-y-2">
+                <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wide">Flood Zones (&gt;50mm)</h4>
+                {adminStats.risk.floodZones.length === 0 ? (
+                  <p className="text-xs text-gray-500 py-1">No active flood warnings.</p>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {adminStats.risk.floodZones.map(c => (
+                      <li key={c._id} className="flex justify-between text-gray-300 py-0.5 border-b border-gray-800/40">
+                        <span>{c._id}</span>
+                        <span className="font-semibold text-blue-400">{c.latestRainfall} mm</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* AQI Hotspots */}
+              <div className="card p-4 space-y-2">
+                <h4 className="text-xs font-bold text-yellow-400 uppercase tracking-wide">AQI Hotspots (&gt;200)</h4>
+                {adminStats.risk.aqiHotspots.length === 0 ? (
+                  <p className="text-xs text-gray-500 py-1">All cities have safe air quality.</p>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {adminStats.risk.aqiHotspots.map(c => (
+                      <li key={c._id} className="flex justify-between text-gray-300 py-0.5 border-b border-gray-800/40">
+                        <span>{c._id}</span>
+                        <span className="font-semibold text-yellow-400">AQI {c.latestAqi}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+            </div>
+          )}
+
+          {/* Trigger and Platform Distribution */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+            {claimAnalytics?.byTrigger?.length>0&&(
+              <div className="card p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-white mb-3">Claims by Trigger</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={claimAnalytics.byTrigger} barSize={24}>
+                    <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={TTStyle}/>
+                    <Bar dataKey="count" name="Claims" radius={[4,4,0,0]}>{claimAnalytics.byTrigger.map((_,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}</Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            
+            {platformAnalytics.length>0&&(
+              <div className="card p-4 sm:p-5">
+                <h3 className="text-sm font-semibold text-white mb-3">Users by Platform</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={platformAnalytics} barSize={28}>
+                    <XAxis dataKey="_id" tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{ fontSize:10, fill:'#4B5563' }} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={TTStyle}/>
+                    <Bar dataKey="count" name="Users" fill="#8B5CF6" radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

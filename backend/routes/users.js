@@ -2,6 +2,8 @@ const express  = require('express');
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const axios     = require('axios');
+const fs        = require('fs');
+const path      = require('path');
 const User           = require('../models/User');
 const PremiumHistory = require('../models/PremiumHistory');
 const auth      = require('../middleware/auth');
@@ -20,17 +22,48 @@ async function calcPremiumAndRisk(city, weeklyIncome, platform) {
   }
 }
 
+// ── Upload Base64 Document ───────────────────────────────────────────────────
+router.post('/upload', async (req, res) => {
+  try {
+    const { name, base64 } = req.body;
+    if (!name || !base64) return res.status(400).json({ error: 'Missing name or base64 data' });
+    
+    // Extract base64 clean data
+    const matches = base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    let base64Data = base64;
+    if (matches && matches.length === 3) {
+      base64Data = matches[2];
+    }
+    
+    const buffer = Buffer.from(base64Data, 'base64');
+    const filename = `${Date.now()}-${name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
+    const uploadDir = path.join(__dirname, '../uploads');
+    const uploadPath = path.join(uploadDir, filename);
+    
+    // Ensure uploads folder exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(uploadPath, buffer);
+    res.json({ url: `/uploads/${filename}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Register ──────────────────────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password, phone, platform, customPlatform, workerId,
-            aadhaarNumber, idProofUrl, profileScreenshotUrl, location,
+            aadhaarNumber, idProofUrl, profileScreenshotUrl,
+            workerIdCardUrl, aadhaarCardUrl, platformScreenshotUrl, location,
             weeklyIncome, homeCity, workCity, customHomeCity, customWorkCity,
             averageDailyIncome, averageOrdersPerDay, onlineHoursPerDay } = req.body;
 
     if (await User.findOne({ email }))    return res.status(400).json({ error: 'Email already registered' });
     if (await User.findOne({ phone }))    return res.status(400).json({ error: 'Phone already registered' });
-    if (await User.findOne({ workerId })) return res.status(400).json({ error: 'Worker ID already registered' });
+    if (workerId && await User.findOne({ workerId })) return res.status(400).json({ error: 'Worker ID already registered' });
 
     const hashed = await bcrypt.hash(password, 10);
     const actualHomeCity = homeCity === 'Other' ? customHomeCity : homeCity;
@@ -39,8 +72,14 @@ router.post('/register', async (req, res) => {
 
     const user = new User({
       name, email, password: hashed, phone,
+      role: 'user',
       platform, customPlatform, workerId,
-      aadhaarNumber, idProofUrl, profileScreenshotUrl,
+      aadhaarNumber,
+      idProofUrl: idProofUrl || aadhaarCardUrl,
+      profileScreenshotUrl: profileScreenshotUrl || platformScreenshotUrl,
+      workerIdCardUrl,
+      aadhaarCardUrl: aadhaarCardUrl || idProofUrl,
+      platformScreenshotUrl: platformScreenshotUrl || profileScreenshotUrl,
       location,
       homeCity: actualHomeCity || location.city,
       workCity: actualWorkCity || location.city,
@@ -63,7 +102,7 @@ router.post('/register', async (req, res) => {
     });
     await User.findByIdAndUpdate(user._id, { $push: { premiumHistory: ph._id } });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user._id, role: 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user: { ...user.toObject(), password: undefined } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -77,7 +116,19 @@ router.post('/login', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password)))
       return res.status(401).json({ error: 'Invalid credentials' });
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user._id, role: user.role || 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { ...user.toObject(), password: undefined } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Admin Login ───────────────────────────────────────────────────────────────
+router.post('/admin/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email, role: 'admin' });
+    if (!user || !(await bcrypt.compare(password, user.password)))
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    const token = jwt.sign({ id: user._id, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { ...user.toObject(), password: undefined } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 import api from '../api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { Shield, TrendingDown, CheckCircle, Star, MapPin, Bell, Home, Briefcase, AlertTriangle } from 'lucide-react';
@@ -18,6 +19,7 @@ export default function Dashboard() {
   const [notifications,  setNotifications]  = useState([]);
   const [locationStatus, setLocationStatus] = useState([]);
   const [locationAlerts, setLocationAlerts] = useState([]);
+  const [dualEligibility,setDualEligibility]= useState(null);
   const watchRef = useRef(null);
 
   useEffect(() => {
@@ -37,6 +39,7 @@ export default function Dashboard() {
       .then(r => setPrediction(r.data)).catch(() => {});
     api.get('/alerts/location-status').then(r => setLocationStatus(r.data)).catch(() => {});
     api.post('/alerts/check').then(r => { if (r.data.alerts?.length > 0) setLocationAlerts(r.data.alerts); }).catch(() => {});
+    api.post('/alerts/dual-check').then(r => setDualEligibility(r.data)).catch(() => {});
 
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     if (navigator.geolocation) {
@@ -52,6 +55,17 @@ export default function Dashboard() {
     }
     return () => { if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current); };
   }, [user]);
+
+  const hasDocs = user?.aadhaarCardUrl || user?.workerIdCardUrl || user?.platformScreenshotUrl;
+  const isApproved = user?.verificationStatus === 'approved';
+  const hasPolicy = !!policy;
+
+  let progressPercent = 25;
+  if (hasDocs) progressPercent = 50;
+  if (isApproved) progressPercent = 75;
+  if (hasPolicy) progressPercent = 100;
+
+  const daysRemaining = policy ? Math.max(0, Math.ceil((new Date(policy.endDate) - new Date()) / (1000 * 60 * 60 * 24))) : 0;
 
   const statCards = [
     { label: 'Weekly Premium',  value: `₹${user?.weeklyPremium || 0}`,          icon: Shield,      glow: '#3B82F6' },
@@ -89,29 +103,216 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Status banners */}
-      {user?.verificationStatus === 'pending' && (
-        <div className="flex items-start gap-2 px-3 sm:px-4 py-3 rounded-xl text-xs sm:text-sm font-medium"
-          style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#FCD34D' }}>
-          ⏳ Account pending admin verification.
-        </div>
-      )}
-      {locationAlerts.map((a, i) => (
-        <div key={i} className="flex items-start gap-2 px-3 py-3 rounded-xl text-xs sm:text-sm"
-          style={{ background: a.severity === 'extreme' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.1)', border: `1px solid ${a.severity === 'extreme' ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`, color: a.severity === 'extreme' ? '#FCA5A5' : '#FCD34D' }}>
-          <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">{a.message}</p>
-            <p className="text-xs mt-0.5 opacity-70">{a.cityType === 'work' ? '📍 Work' : '🏠 Home'} · {new Date(a.timestamp).toLocaleTimeString()}</p>
+      {/* Verification & Coverage Status Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        
+        {/* Verification Progress Tracker */}
+        <div className="card p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white">Verification Status</h3>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse"
+              style={{ background: isApproved ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)', color: isApproved ? '#22C55E' : '#F59E0B' }}>
+              Progress: {progressPercent}%
+            </span>
+          </div>
+          
+          {/* Progress bar */}
+          <div className="h-2 w-full rounded-full" style={{ background: '#1F2937' }}>
+            <div className="h-2 rounded-full transition-all duration-500"
+              style={{
+                width: `${progressPercent}%`,
+                background: progressPercent === 100 ? 'linear-gradient(90deg,#22C55E,#3B82F6)' : 'linear-gradient(90deg,#F59E0B,#3B82F6)'
+              }}
+            />
+          </div>
+
+          {/* Steps list */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-center">
+            {[
+              { label: 'Account Created', checked: true },
+              { label: 'Docs Uploaded', checked: !!hasDocs },
+              {
+                label: 'Verified',
+                checked: isApproved,
+                pending: user?.verificationStatus === 'pending',
+                rejected: user?.verificationStatus === 'rejected'
+              },
+              { label: 'Policy Active', checked: hasPolicy }
+            ].map((step, idx) => (
+              <div key={idx} className="rounded-xl p-2.5 flex flex-col items-center justify-between"
+                style={{ background: '#0B1220', border: '1px solid #1F2937' }}>
+                <span className="text-[10px] uppercase font-semibold text-gray-500 mb-1">{step.label}</span>
+                {step.checked ? (
+                  <span className="text-xs font-bold text-green-500 flex items-center gap-0.5">✓ Done</span>
+                ) : step.rejected ? (
+                  <span className="text-xs font-bold text-red-500 flex items-center gap-0.5">✗ Rejected</span>
+                ) : step.pending ? (
+                  <span className="text-xs font-bold text-yellow-500 animate-pulse">⏳ Pending</span>
+                ) : (
+                  <span className="text-xs font-bold text-gray-600">Pending</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
-      ))}
-      {notifications.map((n, i) => (
-        <div key={i} className="flex items-center gap-2 px-3 sm:px-4 py-3 rounded-xl text-xs sm:text-sm font-medium"
-          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#FCA5A5' }}>
-          <Bell size={13} className="flex-shrink-0" />⚠ {n.text}
+
+        {/* Coverage Status Widget */}
+        <div className="card p-4 sm:p-5 flex flex-col justify-between"
+          style={hasPolicy ? { borderColor: 'rgba(34,197,94,0.3)' } : { borderColor: 'rgba(239,68,68,0.2)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-white">Coverage Widget</h3>
+            <span className={`badge-${hasPolicy ? 'green' : 'red'}`}>
+              {hasPolicy ? 'ACTIVE' : 'INACTIVE'}
+            </span>
+          </div>
+
+          {hasPolicy ? (
+            <div className="space-y-2">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-bold text-white text-base">{policy.planName}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Coverage Amount: <span className="text-white font-semibold">₹{policy.coverageAmount}</span></p>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-bold text-green-500">{daysRemaining} Days</p>
+                  <p className="text-[10px] text-gray-500 uppercase">Remaining</p>
+                </div>
+              </div>
+              
+              <div className="pt-2 grid grid-cols-2 gap-2 text-xs" style={{ borderTop: '1px solid #1F2937' }}>
+                <div>
+                  <span className="text-gray-500 block">Start Date</span>
+                  <span className="text-gray-300">{new Date(policy.startDate).toLocaleDateString()}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">End Date / Next Premium</span>
+                  <span className="text-gray-300">{new Date(policy.endDate).toLocaleDateString()}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-400">
+                No active Parametric Coverage. Choose a protective plan to safeguard your weekly income against weather disruptions.
+              </p>
+              <Link to="/policies" className="btn-neon w-full py-2.5 text-center text-xs flex items-center justify-center gap-1.5" style={{ minHeight: '44px' }}>
+                <Shield size={14} /> Buy Parametric Policy
+              </Link>
+            </div>
+          )}
         </div>
-      ))}
+
+      </div>
+
+      {/* Today's Alerts Widget */}
+      <div className="card p-4 sm:p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Bell size={14} className="text-red-500 animate-pulse" />
+          <h3 className="text-sm font-semibold text-white">Today's Alerts</h3>
+          <span className="text-xs text-gray-500 ml-auto">Work Location Risk Monitoring</span>
+        </div>
+
+        {locationAlerts.length === 0 ? (
+          <p className="text-xs text-gray-500 py-2">
+            ✓ No alerts today. Weather conditions and air quality are safe across your home and work cities.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {locationAlerts.map((alert, i) => (
+              <div key={i} className="flex items-start gap-2.5 p-3 rounded-xl text-xs sm:text-sm"
+                style={{
+                  background: alert.severity === 'extreme' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.08)',
+                  border: `1px solid ${alert.severity === 'extreme' ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.2)'}`,
+                  color: alert.severity === 'extreme' ? '#FCA5A5' : '#FCD34D'
+                }}>
+                <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-white uppercase tracking-wider text-[10px]">
+                    ⚠ {alert.alertType?.toUpperCase()} WARNING &middot; {alert.cityType?.toUpperCase()} ({alert.city})
+                  </p>
+                  <p className="opacity-90">{alert.message}</p>
+                  <p className="text-[10px] opacity-70">
+                    Expected Income disruption detected &middot; {new Date(alert.timestamp || Date.now()).toLocaleTimeString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Dual-City Eligibility Panel */}
+      {dualEligibility && (
+        <div className="card p-4 sm:p-5 space-y-4"
+          style={{ borderColor: dualEligibility.eligible ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.25)' }}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Shield size={14} style={{ color: dualEligibility.eligible ? '#22C55E' : '#EF4444' }} />
+              <h3 className="text-sm font-semibold text-white">Dual-City Claim Eligibility</h3>
+            </div>
+            <span className="px-3 py-1 rounded-full text-xs font-bold"
+              style={{ background: dualEligibility.eligible ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: dualEligibility.eligible ? '#22C55E' : '#EF4444', border: `1px solid ${dualEligibility.eligible ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.3)'}` }}>
+              {dualEligibility.eligible ? '✅ Eligible for Claim' : '❌ Not Eligible'}
+            </span>
+          </div>
+
+          {/* City comparison grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[{ label: 'Home City', key: 'homeData', city: dualEligibility.homeCity, icon: Home, color: '#8B5CF6' },
+              { label: 'Work City', key: 'workData',  city: dualEligibility.workCity,  icon: Briefcase, color: '#3B82F6' }
+            ].map(({ label, key, city, icon: Icon, color }) => {
+              const d = dualEligibility[key];
+              if (!d) return null;
+              const THRESH = dualEligibility.thresholds || { rainfall: 50, aqi: 200, temperature: 42 };
+              const rainAlert = d.weather?.rainfall >= THRESH.rainfall;
+              const aqiAlert  = d.aqi >= THRESH.aqi;
+              const tempAlert = d.weather?.temperature >= THRESH.temperature;
+              return (
+                <div key={key} className="rounded-xl p-3 sm:p-4 space-y-3"
+                  style={{ background: '#0B1220', border: `1px solid ${color}30` }}>
+                  <div className="flex items-center gap-2">
+                    <Icon size={13} style={{ color }} />
+                    <span className="text-xs font-semibold uppercase tracking-wide" style={{ color }}>{label}</span>
+                    <span className="text-sm font-bold text-white ml-1">{city}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Rainfall', value: `${d.weather?.rainfall || 0}mm`, alert: rainAlert, thresh: `>${THRESH.rainfall}mm` },
+                      { label: 'AQI',      value: d.aqi || 0,                       alert: aqiAlert,  thresh: `>${THRESH.aqi}` },
+                      { label: 'Temp',     value: `${d.weather?.temperature || 0}°C`, alert: tempAlert, thresh: `>${THRESH.temperature}°C` }
+                    ].map(({ label: l, value, alert, thresh }) => (
+                      <div key={l} className="rounded-lg p-2 text-center"
+                        style={{ background: alert ? 'rgba(239,68,68,0.12)' : '#111827', border: `1px solid ${alert ? 'rgba(239,68,68,0.35)' : '#1F2937'}` }}>
+                        <p className="text-[10px] font-medium" style={{ color: '#6B7280' }}>{l}</p>
+                        <p className="text-xs font-bold mt-0.5" style={{ color: alert ? '#EF4444' : '#E5E7EB' }}>{value}</p>
+                        <p className="text-[9px] mt-0.5" style={{ color: alert ? '#F87171' : '#374151' }}>{thresh}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs px-2 py-1 rounded-lg font-medium"
+                    style={{ background: ['high','extreme'].includes(d.disruptionLevel) ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)', color: ['high','extreme'].includes(d.disruptionLevel) ? '#FCA5A5' : '#86EFAC' }}>
+                    Disruption: {d.disruptionLevel?.toUpperCase()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Eligibility reason */}
+          <div className="px-3 py-2.5 rounded-xl text-xs font-medium"
+            style={{ background: dualEligibility.eligible ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)', color: dualEligibility.eligible ? '#86EFAC' : '#FCD34D', border: `1px solid ${dualEligibility.eligible ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}` }}>
+            {dualEligibility.eligible
+              ? `✅ ${dualEligibility.reason}. You may submit a claim now.`
+              : `ℹ️ ${dualEligibility.reason}. Both cities must exceed thresholds simultaneously.`}
+          </div>
+
+          {dualEligibility.eligible && (
+            <Link to="/claims" className="btn-neon w-full text-center text-xs py-2.5 flex items-center justify-center gap-2" style={{ minHeight: '44px' }}>
+              <AlertTriangle size={13} /> Submit Claim Now
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* Stat Cards — 2 cols mobile, 4 cols desktop */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

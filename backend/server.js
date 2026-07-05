@@ -7,10 +7,12 @@ const { monitorAndTriggerClaims } = require('./services/weatherService');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── MongoDB ───────────────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI;
+console.log("Mongo URI =", MONGO_URI);
 if (!MONGO_URI) { console.error('FATAL: MONGO_URI not set'); process.exit(1); }
 
 mongoose.set('strictQuery', false);
@@ -40,13 +42,14 @@ app.use('/api/users',     require('./routes/users'));
 app.use('/api/policies',  require('./routes/policies'));
 app.use('/api/claims',    require('./routes/claims'));
 app.use('/api/risk',      require('./routes/risk'));
-app.use('/api/alerts',    require('./routes/alerts'));
 app.use('/api/chatbot',   require('./routes/chatbot'));
 app.use('/api/payments',  require('./routes/payments'));
 app.use('/api/payout',    require('./routes/payout'));
 app.use('/api/history',   require('./routes/history'));
 app.use('/api/admin',     require('./routes/admin'));
 app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/alerts', require('./routes/alerts'));
+app.use('/api/notifications', require('./routes/notifications'));
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

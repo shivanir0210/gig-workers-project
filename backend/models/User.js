@@ -15,8 +15,14 @@ const userSchema = new mongoose.Schema({
   aadhaarNumber:       { type: String },
   idProofUrl:          { type: String },
   profileScreenshotUrl:{ type: String },
+  workerIdCardUrl:     { type: String },
+  aadhaarCardUrl:      { type: String },
+  platformScreenshotUrl:{ type: String },
   verificationStatus:  { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   verificationDate:    { type: Date },
+
+  // Role
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
 
   // Location
   location:      { city: { type: String, required: true }, lat: { type: Number, required: true }, lng: { type: Number, required: true } },
@@ -58,6 +64,8 @@ const userSchema = new mongoose.Schema({
   // Payment details
   upiId:       { type: String },
   bankAccount: { accountNumber: String, ifsc: String, name: String },
+
+  pushSubscription: { type: mongoose.Schema.Types.Mixed },
 
   isActive:  { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now }

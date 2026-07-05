@@ -58,6 +58,10 @@ export default function Login() {
           New to GigShield?{' '}
           <Link to="/register" className="font-semibold" style={{ color: '#3B82F6' }}>Create account</Link>
         </p>
+        <p className="text-center text-xs mt-2" style={{ color: '#4B5563' }}>
+          Admin?{' '}
+          <Link to="/admin/login" className="font-semibold" style={{ color: '#F59E0B' }}>Admin Portal →</Link>
+        </p>
       </div>
     </div>
   );

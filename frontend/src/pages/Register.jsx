@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import api from '../api';
 import { Shield, MapPin, Briefcase, DollarSign } from 'lucide-react';
 
 const CITIES    = ['Mumbai','Delhi','Bangalore','Chennai','Hyderabad','Pune','Coimbatore','Pollachi','Other'];
@@ -24,13 +25,36 @@ export default function Register() {
     name:'',email:'',password:'',phone:'',platform:'Swiggy',customPlatform:'',workerId:'',
     city:'Mumbai',homeCity:'Mumbai',customHomeCity:'',workCity:'Mumbai',customWorkCity:'',
     weeklyIncome:'',averageDailyIncome:'',averageOrdersPerDay:'',onlineHoursPerDay:'',
-    aadhaarNumber:'',idProofFile:null
+    aadhaarNumber:'',
+    aadhaarCardFile:null,
+    workerIdCardFile:null,
+    platformScreenshotFile:null
   });
   const [loading, setLoading] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   const actualHomeCity = form.homeCity==='Other' ? form.customHomeCity : form.homeCity;
   const actualWorkCity = form.workCity==='Other' ? form.customWorkCity : form.workCity;
+
+  const uploadFile = async (file) => {
+    if (!file) return '';
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const res = await api.post('/users/upload', {
+            name: file.name,
+            base64: reader.result
+          });
+          resolve(res.data.url);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = (err) => reject(err);
+      reader.readAsDataURL(file);
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -39,11 +63,31 @@ export default function Register() {
     if(!actualWorkCity) return toast.error('Enter work city');
     setLoading(true);
     try {
+      let aadhaarCardUrl = '', workerIdCardUrl = '', platformScreenshotUrl = '';
+      if (form.aadhaarCardFile || form.workerIdCardFile || form.platformScreenshotFile) {
+        toast.loading('Uploading documents...', { id: 'regUpload' });
+        try {
+          aadhaarCardUrl = await uploadFile(form.aadhaarCardFile);
+          workerIdCardUrl = await uploadFile(form.workerIdCardFile);
+          platformScreenshotUrl = await uploadFile(form.platformScreenshotFile);
+        } catch(uploadErr) {
+          console.error('Upload error:', uploadErr);
+          toast.dismiss('regUpload');
+          toast.error('Document upload failed. Proceeding without documents.');
+        }
+        toast.dismiss('regUpload');
+      }
+
+      const locationCity = actualHomeCity || 'Mumbai';
+      const coords = CITY_COORDS[locationCity] || CITY_COORDS[form.homeCity] || { lat: 20.5937, lng: 78.9629 };
       await register({
         name:form.name,email:form.email,password:form.password,phone:form.phone,
         platform:form.platform,customPlatform:form.customPlatform,workerId:form.workerId,
         aadhaarNumber:form.aadhaarNumber,
-        location:{city:form.city,...CITY_COORDS[form.city]},
+        aadhaarCardUrl,
+        workerIdCardUrl,
+        platformScreenshotUrl,
+        location:{ city: locationCity, lat: coords.lat, lng: coords.lng },
         homeCity:form.homeCity,workCity:form.workCity,
         customHomeCity:form.customHomeCity,customWorkCity:form.customWorkCity,
         weeklyIncome:Number(form.weeklyIncome),
@@ -54,6 +98,7 @@ export default function Register() {
       toast.success('Account created! Pending admin verification.');
       navigate('/login');
     } catch(err) {
+      toast.dismiss('regUpload');
       toast.error(err.response?.data?.error||'Registration failed');
     } finally { setLoading(false); }
   };
@@ -233,9 +278,21 @@ export default function Register() {
                   </div>
                   <div>
                     <label className={lbl} style={clr}>Upload Aadhaar Card</label>
-                    <input type="file" accept="image/*,.pdf" onChange={e=>set('idProofFile',e.target.files[0])}
+                    <input type="file" accept="image/*,.pdf" onChange={e=>set('aadhaarCardFile',e.target.files[0])}
                       className="input-dark w-full cursor-pointer" required/>
                     <p className="text-xs mt-1" style={{color:'#4B5563'}}>Aadhaar front side (image or PDF)</p>
+                  </div>
+                  <div>
+                    <label className={lbl} style={clr}>Upload Worker ID Card</label>
+                    <input type="file" accept="image/*,.pdf" onChange={e=>set('workerIdCardFile',e.target.files[0])}
+                      className="input-dark w-full cursor-pointer" required/>
+                    <p className="text-xs mt-1" style={{color:'#4B5563'}}>Worker ID proof (image or PDF)</p>
+                  </div>
+                  <div>
+                    <label className={lbl} style={clr}>Upload Platform Screenshot</label>
+                    <input type="file" accept="image/*" onChange={e=>set('platformScreenshotFile',e.target.files[0])}
+                      className="input-dark w-full cursor-pointer" required/>
+                    <p className="text-xs mt-1" style={{color:'#4B5563'}}>Gig platform active profile screen capture</p>
                   </div>
                 </div>
               </div>

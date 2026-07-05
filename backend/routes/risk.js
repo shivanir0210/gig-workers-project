@@ -1,7 +1,7 @@
 const express = require('express');
 const RiskData = require('../models/RiskData');
 const RiskZone = require('../models/RiskZone');
-const { fetchWeatherData, fetchAQIData, getDisruptionLevel, CITY_COORDS, isInsideZone } = require('../services/weatherService');
+const { fetchWeatherData, fetchAQIData, getDisruptionLevel, checkDualCityEligibility, CITY_COORDS, isInsideZone } = require('../services/weatherService');
 const auth = require('../middleware/auth');
 const router = express.Router();
 
@@ -22,7 +22,17 @@ router.get('/current/:city', async (req, res) => {
   }
 });
 
-router.get('/heatmap', async (req, res) => {
+// ── Dual-city eligibility ───────────────────────────────────────────────────────────────
+router.get('/dual-eligibility', auth, async (req, res) => {
+  try {
+    const User = require('../models/User');
+    const user = await User.findById(req.user.id);
+    const result = await checkDualCityEligibility(user);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
   try {
     const count = await RiskZone.countDocuments();
     if (count === 0) {

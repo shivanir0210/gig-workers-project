@@ -28,6 +28,10 @@ router.post('/create-order', auth, async (req, res) => {
     const { planType } = req.body;
     const user = await User.findById(req.user.id);
 
+    if (user.verificationStatus !== 'approved') {
+      return res.status(403).json({ error: 'Account not verified. Await admin approval.' });
+    }
+
     const PLANS = { basic: 1, standard: 1.5, premium: 2 };
     const multiplier = PLANS[planType] || 1.5;
     const amount = Math.round(user.weeklyPremium * multiplier);
@@ -100,6 +104,14 @@ router.post('/verify', auth, async (req, res) => {
     payment.paymentDate = new Date();
     payment.paidAt = new Date(); // backward compat
     await payment.save();
+
+    // Increment Insurance Pool
+    const InsurancePool = require('../models/InsurancePool');
+    await InsurancePool.findOneAndUpdate(
+      {},
+      { $inc: { totalPremiumCollected: payment.amount, availablePool: payment.amount }, updatedAt: new Date() },
+      { upsert: true }
+    );
 
     // Activate policy only after successful payment
     const user = await User.findById(req.user.id);

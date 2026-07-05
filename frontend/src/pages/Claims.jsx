@@ -33,13 +33,17 @@ export default function Claims() {
   const [processing, setProcessing] = useState(null);
   const [tab,        setTab]        = useState('claims');
   const [expanded,   setExpanded]   = useState(null);
+  const [eligibility,setEligibility]= useState(null);
 
   const fetchAll = async () => {
-    const [c, p] = await Promise.all([
+    const [c, p, e] = await Promise.all([
       api.get('/claims/my').catch(() => ({ data:[] })),
-      api.get('/claims/payouts').catch(() => ({ data:[] }))
+      api.get('/claims/payouts').catch(() => ({ data:[] })),
+      api.post('/alerts/dual-check').catch(() => ({ data: null }))
     ]);
-    setClaims(c.data); setPayouts(p.data); setLoading(false);
+    setClaims(c.data); setPayouts(p.data);
+    if (e.data) setEligibility(e.data);
+    setLoading(false);
   };
   useEffect(() => { fetchAll(); }, []);
 
@@ -67,6 +71,36 @@ export default function Claims() {
           <Zap size={10}/> Auto-Trigger
         </div>
       </div>
+
+      {/* Dual-city eligibility banner */}
+      {eligibility && (
+        <div className="rounded-xl p-3 sm:p-4"
+          style={{ background: eligibility.eligible ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${eligibility.eligible ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.25)'}` }}>
+          <div className="flex items-start gap-3 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold mb-1" style={{ color: eligibility.eligible ? '#22C55E' : '#EF4444' }}>
+                {eligibility.eligible ? '✅ Dual-City Eligibility: CONFIRMED' : '❌ Dual-City Eligibility: NOT MET'}
+              </p>
+              <p className="text-xs" style={{ color: '#9CA3AF' }}>{eligibility.reason}</p>
+              {eligibility.homeData && eligibility.workData && (
+                <div className="flex gap-4 mt-2 flex-wrap">
+                  {[{ label: 'Home', city: eligibility.homeCity, d: eligibility.homeData },
+                    { label: 'Work', city: eligibility.workCity,  d: eligibility.workData }].map(({ label, city, d }) => (
+                    <div key={label} className="text-xs" style={{ color: '#6B7280' }}>
+                      <span className="font-semibold text-gray-400">{label} ({city}): </span>
+                      Rain {d.weather?.rainfall||0}mm &middot; AQI {d.aqi||0} &middot; {d.weather?.temperature||0}°C
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0"
+              style={{ background: eligibility.eligible ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: eligibility.eligible ? '#22C55E' : '#EF4444' }}>
+              {eligibility.eligible ? 'ELIGIBLE' : 'INELIGIBLE'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="tab-bar">
