@@ -102,6 +102,36 @@ export default function Claims() {
         </div>
       )}
 
+      {/* Dual-city eligibility banner */}
+      {eligibility && (
+        <div className="rounded-xl p-3 sm:p-4"
+          style={{ background: eligibility.eligible ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${eligibility.eligible ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.25)'}` }}>
+          <div className="flex items-start gap-3 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold mb-1" style={{ color: eligibility.eligible ? '#22C55E' : '#EF4444' }}>
+                {eligibility.eligible ? '✅ Dual-City Eligibility: CONFIRMED' : '❌ Dual-City Eligibility: NOT MET'}
+              </p>
+              <p className="text-xs" style={{ color: '#9CA3AF' }}>{eligibility.reason}</p>
+              {eligibility.homeData && eligibility.workData && (
+                <div className="flex gap-4 mt-2 flex-wrap">
+                  {[{ label: 'Home', city: eligibility.homeCity, d: eligibility.homeData },
+                    { label: 'Work', city: eligibility.workCity,  d: eligibility.workData }].map(({ label, city, d }) => (
+                    <div key={label} className="text-xs" style={{ color: '#6B7280' }}>
+                      <span className="font-semibold text-gray-400">{label} ({city}): </span>
+                      Rain {d.weather?.rainfall||0}mm · AQI {d.aqi||0} · {d.weather?.temperature||0}°C
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0"
+              style={{ background: eligibility.eligible ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: eligibility.eligible ? '#22C55E' : '#EF4444' }}>
+              {eligibility.eligible ? 'ELIGIBLE' : 'INELIGIBLE'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="tab-bar">
         {['claims','payouts'].map(t => (
@@ -192,11 +222,30 @@ export default function Claims() {
                       <VerificationLayer label="6. Time Window" passed={true} detail="Within window"/>
                       <VerificationLayer label="7. Duplicate Check" passed={vd.duplicateCheck} detail="No dup in 24h"/>
                       <VerificationLayer label="8. Fraud Score" passed={fraudOk} detail={`Score: ${claim.fraudScore}/100`}/>
+                      <VerificationLayer label="9. Dual-City Check" passed={!!vd.dualCityVerified} detail={
+                        vd.homeCityData && vd.workCityData
+                          ? `${vd.homeCityData.city} & ${vd.workCityData.city} both affected`
+                          : 'Both cities verified'
+                      }/>
                       <div className="mt-3 px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2"
                         style={{ background:claim.status==='rejected'?'rgba(239,68,68,0.1)':'rgba(34,197,94,0.1)', border:`1px solid ${claim.status==='rejected'?'rgba(239,68,68,0.3)':'rgba(34,197,94,0.3)'}`, color:claim.status==='rejected'?'#EF4444':'#22C55E' }}>
                         <Cpu size={11}/>
-                        AI: {claim.status==='rejected'?'REJECTED':'claim.status==="paid"?PAID:APPROVED'}
+                        AI Decision: {claim.status.toUpperCase()}
                       </div>
+                      {vd.homeCityData && vd.workCityData && (
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          {[{ label:'Home City', d: vd.homeCityData }, { label:'Work City', d: vd.workCityData }].map(({ label, d }) => (
+                            <div key={label} className="rounded-lg p-2.5" style={{ background:'#111827', border:'1px solid #1F2937' }}>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide mb-1.5" style={{ color:'#6B7280' }}>{label}: {d.city}</p>
+                              <div className="space-y-0.5 text-xs" style={{ color:'#9CA3AF' }}>
+                                <p>Rain: <span className="font-bold" style={{ color: d.rainfall>=50?'#EF4444':'#E5E7EB' }}>{d.rainfall}mm</span></p>
+                                <p>AQI: <span className="font-bold" style={{ color: d.aqi>=200?'#EF4444':'#E5E7EB' }}>{d.aqi}</span></p>
+                                <p>Temp: <span className="font-bold" style={{ color: d.temperature>=42?'#EF4444':'#E5E7EB' }}>{d.temperature}°C</span></p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

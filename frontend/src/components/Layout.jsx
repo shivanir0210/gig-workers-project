@@ -6,7 +6,8 @@ import {
   Shield, LayoutDashboard, FileText, AlertTriangle,
   Map, MessageCircle, LogOut, CreditCard,
   User, BarChart2, Settings, Menu, X, Bell,
-  ShieldCheck, Users, TrendingUp, Flag, ClipboardList
+  ShieldCheck, Users, TrendingUp, Flag, ClipboardList,
+  Cloud, Wind, FileBarChart, Send
 } from 'lucide-react';
 
 const userNavItems = [
@@ -22,13 +23,19 @@ const userNavItems = [
 ];
 
 const adminNavItems = [
-  { path: '/admin/dashboard',    label: 'Overview',        icon: LayoutDashboard },
-  { path: '/admin/verification', label: 'Verification',    icon: ShieldCheck },
-  { path: '/admin/fraud',        label: 'Fraud Detection', icon: Flag },
-  { path: '/admin/claims',       label: 'Claims',          icon: ClipboardList },
-  { path: '/admin/analytics',    label: 'Analytics',       icon: TrendingUp },
-  { path: '/admin/users',        label: 'Users',           icon: Users },
-  { path: '/admin/settings',     label: 'Settings',        icon: Settings },
+  { path: '/admin/dashboard',     label: 'Overview',        icon: LayoutDashboard },
+  { path: '/admin/workers',       label: 'Workers',         icon: Users },
+  { path: '/admin/verification',  label: 'Verification',    icon: ShieldCheck },
+  { path: '/admin/policies',      label: 'Policies',        icon: FileText },
+  { path: '/admin/claims',        label: 'Claims',          icon: ClipboardList },
+  { path: '/admin/payments',      label: 'Payments',        icon: CreditCard },
+  { path: '/admin/weather',       label: 'Weather',         icon: Cloud },
+  { path: '/admin/aqi',           label: 'AQI',             icon: Wind },
+  { path: '/admin/notifications', label: 'Notifications',   icon: Bell },
+  { path: '/admin/analytics',     label: 'Analytics',       icon: TrendingUp },
+  { path: '/admin/fraud',         label: 'Fraud Detection', icon: Flag },
+  { path: '/admin/reports',       label: 'Reports',         icon: FileBarChart },
+  { path: '/admin/settings',      label: 'Settings',        icon: Settings },
 ];
 
 export default function Layout({ children }) {

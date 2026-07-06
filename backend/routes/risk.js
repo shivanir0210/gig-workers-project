@@ -32,7 +32,7 @@ router.get('/dual-eligibility', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-
+router.get('/heatmap', async (req, res) => {
   try {
     const count = await RiskZone.countDocuments();
     if (count === 0) {

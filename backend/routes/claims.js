@@ -6,6 +6,7 @@ const Policy   = require('../models/Policy');
 const User     = require('../models/User');
 const auth     = require('../middleware/auth');
 const { checkDualCityEligibility } = require('../services/weatherService');
+const notify = require('../services/notify');
 const router   = express.Router();
 
 // ── Submit claim ──────────────────────────────────────────────────────────────
@@ -96,6 +97,8 @@ router.post('/submit', auth, async (req, res) => {
     }
 
     res.status(201).json(claim);
+    // fire notification async after response
+    notify.claimSubmitted(user._id, triggerType, payoutAmount).catch(() => {});
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -166,6 +169,7 @@ router.post('/process-payout/:claimId', auth, async (req, res) => {
     await claim.save();
 
     await User.findByIdAndUpdate(user._id, { $inc: { trustScore: 2 } });
+    notify.payoutCredited(user._id, claim.payoutAmount, method).catch(() => {});
     res.json({ success: true, payoutId: mockPayoutId, amount: claim.payoutAmount, method });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

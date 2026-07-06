@@ -3,6 +3,7 @@ const Alert    = require('../models/Alert');
 const User     = require('../models/User');
 const auth     = require('../middleware/auth');
 const { checkCityDisruption, checkDualCityEligibility } = require('../services/weatherService');
+const notify = require('../services/notify');
 const router   = express.Router();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,6 +89,11 @@ router.post('/check', auth, async (req, res) => {
               riskLevel: disruptionLevel
             });
             newAlerts.push(saved);
+            // fire typed notification
+            if (a.alertType === 'rainfall' && weather.rainfall > 80) await notify.flood(user._id, city, weather.rainfall);
+            else if (a.alertType === 'rainfall') await notify.heavyRain(user._id, city, weather.rainfall);
+            else if (a.alertType === 'aqi') await notify.aqi(user._id, city, aqi);
+            else if (a.alertType === 'temperature') await notify.heatwave(user._id, city, weather.temperature);
           }
         }
       }
@@ -105,22 +111,14 @@ router.post('/dual-check', auth, async (req, res) => {
 
     // If both cities eligible, create a dual-city notification
     if (eligibility.eligible) {
-      const Notification = require('../models/Notification');
-      const recent = await Notification.findOne({
-        userId: user._id,
-        alertType: 'dual_city_eligible',
-        timestamp: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }
-      });
-      if (!recent) {
-        await Notification.create({
-          userId: user._id,
-          alertType: 'dual_city_eligible',
-          severity: 'high',
-          city: `${eligibility.homeCity} & ${eligibility.workCity}`,
-          message: `Heavy ${eligibility.matchedTrigger} detected in both your home city (${eligibility.homeCity}) and current work city (${eligibility.workCity}). You are eligible to submit a parametric insurance claim.`,
-          isRead: false
-        });
-      }
+      await notify.dualCityEligible(
+        user._id,
+        eligibility.homeCity,
+        eligibility.workCity,
+        eligibility.matchedTrigger,
+        eligibility.homeData.weather[eligibility.matchedTrigger] ?? eligibility.homeData.aqi,
+        eligibility.workData.weather[eligibility.matchedTrigger] ?? eligibility.workData.aqi
+      );
     }
 
     res.json(eligibility);

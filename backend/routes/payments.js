@@ -5,6 +5,7 @@ const Payment = require('../models/Payment');
 const Policy = require('../models/Policy');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const notify = require('../services/notify');
 const router = express.Router();
 
 const razorpay = new Razorpay({
@@ -138,9 +139,12 @@ router.post('/verify', auth, async (req, res) => {
       await policy.save();
       payment.policyId = policy._id;
       await payment.save();
+      await notify.policyActivated(req.user.id, plan.name, policy.coverageAmount);
+      await notify.paymentSuccess(req.user.id, payment.amount, plan.name);
       return res.json({ success: true, policy, payment });
     }
 
+    await notify.paymentSuccess(req.user.id, payment.amount, 'your plan');
     return res.json({ success: true, payment });
   } catch (err) {
     res.status(500).json({ error: err.message });

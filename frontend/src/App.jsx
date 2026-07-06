@@ -85,14 +85,20 @@ export default function App() {
           <Route path="/profile"        element={<UserRoute><Profile /></UserRoute>} />
           <Route path="/notifications"  element={<UserRoute><Notifications /></UserRoute>} />
 
-          {/* Admin routes — all render the same Admin page with tab routing */}
-          <Route path="/admin/dashboard"    element={<AdminRoute><Admin tab="overview" /></AdminRoute>} />
-          <Route path="/admin/verification" element={<AdminRoute><Admin tab="verification" /></AdminRoute>} />
-          <Route path="/admin/fraud"        element={<AdminRoute><Admin tab="fraud" /></AdminRoute>} />
-          <Route path="/admin/claims"       element={<AdminRoute><Admin tab="claims" /></AdminRoute>} />
-          <Route path="/admin/analytics"    element={<AdminRoute><Admin tab="analytics" /></AdminRoute>} />
-          <Route path="/admin/users"        element={<AdminRoute><Admin tab="users" /></AdminRoute>} />
-          <Route path="/admin/settings"     element={<AdminRoute><Admin tab="settings" /></AdminRoute>} />
+          {/* Admin routes */}
+          <Route path="/admin/dashboard"      element={<AdminRoute><Admin tab="overview" /></AdminRoute>} />
+          <Route path="/admin/workers"        element={<AdminRoute><Admin tab="workers" /></AdminRoute>} />
+          <Route path="/admin/verification"   element={<AdminRoute><Admin tab="verification" /></AdminRoute>} />
+          <Route path="/admin/policies"       element={<AdminRoute><Admin tab="policies" /></AdminRoute>} />
+          <Route path="/admin/claims"         element={<AdminRoute><Admin tab="claims" /></AdminRoute>} />
+          <Route path="/admin/payments"       element={<AdminRoute><Admin tab="payments" /></AdminRoute>} />
+          <Route path="/admin/weather"        element={<AdminRoute><Admin tab="weather" /></AdminRoute>} />
+          <Route path="/admin/aqi"            element={<AdminRoute><Admin tab="aqi" /></AdminRoute>} />
+          <Route path="/admin/notifications"  element={<AdminRoute><Admin tab="notifications" /></AdminRoute>} />
+          <Route path="/admin/analytics"      element={<AdminRoute><Admin tab="analytics" /></AdminRoute>} />
+          <Route path="/admin/fraud"          element={<AdminRoute><Admin tab="fraud" /></AdminRoute>} />
+          <Route path="/admin/reports"        element={<AdminRoute><Admin tab="reports" /></AdminRoute>} />
+          <Route path="/admin/settings"       element={<AdminRoute><Admin tab="settings" /></AdminRoute>} />
 
           {/* Legacy /admin redirect */}
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
