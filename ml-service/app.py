@@ -175,6 +175,18 @@ def fraud_detection():
         'recommendation': 'reject' if anomaly_score > 70 else 'review' if anomaly_score > 40 else 'approve'
     })
 
+@app.route("/")
+def home():
+    return jsonify({
+        "status": "GigShield ML Service Running",
+        "message": "Welcome to GigShield ML API",
+        "health": "/health",
+        "prediction": "/income-prediction",
+        "ocr": "/verify-aadhaar",
+        "risk": "/predict-risk",
+        "fraud": "/fraud-detection"
+    })
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'})
