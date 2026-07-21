@@ -14,23 +14,44 @@ router.post('/submit', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
 
-    // Gate 1: verification
-    if (user.verificationStatus !== 'approved')
+    // Gate 1: Active Policy check
+    const policy = await Policy.findOne({
+      userId: user._id,
+      $or: [{ policyStatus: 'ACTIVE' }, { status: 'active' }]
+    }).sort({ createdAt: -1 });
+
+    if (!policy || (policy.policyStatus && policy.policyStatus !== 'ACTIVE') || (policy.status && policy.status !== 'active')) {
+      return res.status(400).json({ error: 'No active insurance policy found. Please activate a policy before submitting a claim.' });
+    }
+
+    // Gate 2: Premium payments up-to-date & policy not expired
+    const now = new Date();
+    const endDate = policy.policyEndDate || policy.endDate;
+    if (endDate && now > endDate) {
+      policy.policyStatus = 'EXPIRED';
+      policy.status = 'expired';
+      await policy.save();
+      return res.status(400).json({ error: 'Policy expired. Claims cannot be submitted until you renew your policy.' });
+    }
+
+    if (policy.nextDueDate && now > new Date(policy.nextDueDate.getTime() + 24 * 60 * 60 * 1000)) {
+      return res.status(400).json({ error: 'Premium payment is overdue. Please pay your premium to continue submitted claims.' });
+    }
+
+    // Gate 3: Aadhaar / Identity Verification
+    if (user.verificationStatus !== 'approved' && !user.aadhaarNumber && !user.enteredAadhaar) {
+      return res.status(403).json({ error: 'Aadhaar verification required before submitting a claim.' });
+    }
+    if (user.verificationStatus !== 'approved') {
       return res.status(403).json({ error: 'Account not verified. Await admin approval.' });
+    }
 
-    // Gate 2: fraud block
-    if (user.fraudStatus === 'blocked')
-      return res.status(403).json({ error: 'Account blocked due to fraud.' });
+    // Gate 4: Fraud status & Fraud score check
+    if (user.fraudStatus === 'blocked' || (user.fraudScore && user.fraudScore >= 60)) {
+      return res.status(403).json({ error: 'Claim rejected due to fraud risk threshold.' });
+    }
 
-    // Gate 3: active policy
-    const policy = await Policy.findOne({ userId: user._id, status: 'active' });
-    if (!policy) return res.status(400).json({ error: 'No active policy. Purchase a plan first.' });
-
-    // Gate 4: policy not expired
-    if (policy.endDate && new Date() > policy.endDate)
-      return res.status(400).json({ error: 'Policy expired. Please renew.' });
-
-    // Gate 5: claim abuse — max 3 claims/week
+    // Gate 5: Claim abuse — max 3 claims/week
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const weekClaims = await Claim.countDocuments({ userId: user._id, triggeredAt: { $gte: oneWeekAgo } });
     if (weekClaims >= 3) {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -31,7 +31,17 @@ export default function Register() {
     platformScreenshotFile:null
   });
   const [loading, setLoading] = useState(false);
-  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [ocrState, setOcrState] = useState({ status: 'idle', ocrAadhaar: '', confidence: 0, verificationStatus: '', verificationMessage: '' });
+  const set = (k,v) => {
+    setForm(f=>({...f,[k]:v}));
+    setFieldErrors(prev => {
+      if (!prev[k]) return prev;
+      const next = { ...prev };
+      delete next[k];
+      return next;
+    });
+  };
 
   const actualHomeCity = form.homeCity==='Other' ? form.customHomeCity : form.homeCity;
   const actualWorkCity = form.workCity==='Other' ? form.customWorkCity : form.workCity;
@@ -55,6 +65,42 @@ export default function Register() {
       reader.readAsDataURL(file);
     });
   };
+
+  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+    if (!file) return resolve('');
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const runAadhaarOcr = async (file, aadhaarNumber) => {
+    if (!file || !/^[0-9]{12}$/.test(aadhaarNumber)) return;
+    setOcrState({ status: 'reading', ocrAadhaar: '', confidence: 0, verificationStatus: '', verificationMessage: 'OCR Reading...' });
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const res = await api.post('/users/verify-aadhaar', { name: file.name, base64: dataUrl, aadhaarNumber });
+      setOcrState({
+        status: 'done',
+        ocrAadhaar: res.data.ocrAadhaar || '',
+        confidence: res.data.ocrConfidence || 0,
+        verificationStatus: res.data.verificationStatus || '',
+        verificationMessage: res.data.verificationMessage || ''
+      });
+    } catch (err) {
+      console.error('OCR error', err);
+      setOcrState({ status: 'error', ocrAadhaar: '', confidence: 0, verificationStatus: 'pending_manual_review', verificationMessage: 'Unable to verify Aadhaar automatically.' });
+    }
+  };
+
+  useEffect(() => {
+    if (form.aadhaarCardFile && form.aadhaarNumber.length === 12) {
+      runAadhaarOcr(form.aadhaarCardFile, form.aadhaarNumber);
+    } else if (!form.aadhaarCardFile) {
+      setOcrState({ status: 'idle', ocrAadhaar: '', confidence: 0, verificationStatus: '', verificationMessage: '' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.aadhaarCardFile, form.aadhaarNumber]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -99,7 +145,14 @@ export default function Register() {
       navigate('/login');
     } catch(err) {
       toast.dismiss('regUpload');
-      toast.error(err.response?.data?.error||'Registration failed');
+      const message = err.response?.data?.error || 'Registration failed';
+      toast.error(message);
+      const mapped = {};
+      if (message.includes('Aadhaar')) mapped.aadhaarNumber = message;
+      if (message.includes('Worker ID')) mapped.workerId = message;
+      if (message.includes('Email')) mapped.email = message;
+      if (message.includes('Mobile') || message.includes('Phone')) mapped.phone = message;
+      if (Object.keys(mapped).length) setFieldErrors(mapped);
     } finally { setLoading(false); }
   };
 
@@ -148,7 +201,8 @@ export default function Register() {
               </div>
               <div>
                 <label className={lbl} style={clr}>Email</label>
-                <input type="email" value={form.email} onChange={e=>set('email',e.target.value)} required className="input-dark w-full" style={inp} placeholder="email@example.com"/>
+                <input type="email" value={form.email} onChange={e=>set('email',e.target.value)} required className="input-dark w-full" style={{ ...inp, borderColor: fieldErrors.email ? '#EF4444' : undefined }} placeholder="email@example.com"/>
+                {fieldErrors.email && <p className="text-xs text-red-400 mt-1">{fieldErrors.email}</p>}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -157,7 +211,8 @@ export default function Register() {
                 </div>
                 <div>
                   <label className={lbl} style={clr}>Phone</label>
-                  <input type="tel" value={form.phone} onChange={e=>set('phone',e.target.value)} required className="input-dark w-full" style={inp} placeholder="10-digit"/>
+                  <input type="tel" value={form.phone} onChange={e=>set('phone',e.target.value)} required className="input-dark w-full" style={{ ...inp, borderColor: fieldErrors.phone ? '#EF4444' : undefined }} placeholder="10-digit"/>
+                  {fieldErrors.phone && <p className="text-xs text-red-400 mt-1">{fieldErrors.phone}</p>}
                 </div>
                 <div>
                   <label className={lbl} style={clr}>Platform</label>
@@ -167,7 +222,8 @@ export default function Register() {
                 </div>
                 <div>
                   <label className={lbl} style={clr}>Worker ID</label>
-                  <input value={form.workerId} onChange={e=>set('workerId',e.target.value)} required className="input-dark w-full" style={inp} placeholder="Platform Worker ID"/>
+                  <input value={form.workerId} onChange={e=>set('workerId',e.target.value)} required className="input-dark w-full" style={{ ...inp, borderColor: fieldErrors.workerId ? '#EF4444' : undefined }} placeholder="Platform Worker ID"/>
+                  {fieldErrors.workerId && <p className="text-xs text-red-400 mt-1">{fieldErrors.workerId}</p>}
                 </div>
               </div>
               {form.platform==='Other'&&(
@@ -273,7 +329,8 @@ export default function Register() {
                     <label className={lbl} style={clr}>Aadhaar Number</label>
                     <input value={form.aadhaarNumber}
                       onChange={e=>set('aadhaarNumber',e.target.value.replace(/\D/g,'').slice(0,12))}
-                      required className="input-dark w-full" style={inp} placeholder="12-digit Aadhaar" maxLength={12} inputMode="numeric"/>
+                      required className="input-dark w-full" style={{ ...inp, borderColor: fieldErrors.aadhaarNumber ? '#EF4444' : undefined }} placeholder="12-digit Aadhaar" maxLength={12} inputMode="numeric"/>
+                    {fieldErrors.aadhaarNumber && <p className="text-xs text-red-400 mt-1">{fieldErrors.aadhaarNumber}</p>}
                     <p className="text-xs mt-1" style={{color:'#4B5563'}}>{form.aadhaarNumber.length}/12 digits</p>
                   </div>
                   <div>
@@ -282,6 +339,24 @@ export default function Register() {
                       className="input-dark w-full cursor-pointer" required/>
                     <p className="text-xs mt-1" style={{color:'#4B5563'}}>Aadhaar front side (image or PDF)</p>
                   </div>
+                  {ocrState.status !== 'idle' && (
+                    <div className="rounded-2xl p-3 text-sm" style={{ background:'#111827', border:'1px solid #1F2937' }}>
+                      <p className="font-semibold text-white text-xs">OCR Verification</p>
+                      <p className="text-xs mt-2" style={{ color:'#9CA3AF' }}>{ocrState.verificationMessage || 'OCR is checking your Aadhaar document.'}</p>
+                      {ocrState.status === 'reading' && <p className="text-xs mt-2" style={{ color:'#F59E0B' }}>⏳ OCR Reading...</p>}
+                      {ocrState.status === 'done' && (
+                        <div className="mt-2 space-y-2">
+                          <div className="grid grid-cols-2 gap-2 text-xs text-gray-300">
+                            <div>Aadhaar entered</div><div>{form.aadhaarNumber || '—'}</div>
+                            <div>OCR Aadhaar</div><div>{ocrState.ocrAadhaar || 'Not detected'}</div>
+                            <div>Confidence</div><div>{ocrState.confidence}%</div>
+                            <div>Status</div><div>{ocrState.verificationStatus === 'auto_verified' ? '✅ Verified' : '⚠ Pending manual review'}</div>
+                          </div>
+                        </div>
+                      )}
+                      {ocrState.status === 'error' && <p className="text-xs mt-2 text-red-400">OCR failed. Your account will be reviewed manually.</p>}
+                    </div>
+                  )}
                   <div>
                     <label className={lbl} style={clr}>Upload Worker ID Card</label>
                     <input type="file" accept="image/*,.pdf" onChange={e=>set('workerIdCardFile',e.target.files[0])}

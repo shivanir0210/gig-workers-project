@@ -115,6 +115,17 @@ const notify = {
     title: '📄 Policy Activated',
     message: `Your ${planName} insurance policy is now active with ₹${coverageAmount} coverage. You are protected against weather disruptions.`
   }),
+  policyRenewed: (userId, planName) => createNotification({
+    userId, type: 'policy', priority: 'high', alertType: 'policy_renewed',
+    title: '🔄 Policy Renewed',
+    message: `Your ${planName} insurance policy has been renewed successfully. Coverage continues without interruption.`
+  }),
+  premiumDueReminder: (userId, daysLeft = 3) => createNotification({
+    userId, type: 'payment', priority: 'high', alertType: 'premium_due_reminder',
+    title: '📅 Premium Due Reminder',
+    message: `Your GigShield premium payment is due in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}. Pay before the due date to continue uninterrupted insurance coverage.`,
+    dedupeHours: 24
+  }),
   policyExpiringSoon: (userId, planName, daysLeft) => createNotification({
     userId, type: 'policy', priority: 'high', alertType: 'policy_expiring',
     title: '⏳ Policy Expiring Soon',
@@ -123,8 +134,8 @@ const notify = {
   }),
   policyExpired: (userId, planName) => createNotification({
     userId, type: 'policy', priority: 'critical', alertType: 'policy_expired',
-    title: '🔴 Policy Expired',
-    message: `Your ${planName} policy has expired. Purchase a new plan to restore income protection.`
+    title: '❌ Policy Expired',
+    message: `Your insurance policy has expired. Claims cannot be submitted until you renew your policy.`
   }),
 
   // Admin

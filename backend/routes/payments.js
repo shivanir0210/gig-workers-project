@@ -4,8 +4,10 @@ const Razorpay = require('razorpay');
 const Payment = require('../models/Payment');
 const Policy = require('../models/Policy');
 const User = require('../models/User');
+const InsurancePool = require('../models/InsurancePool');
 const auth = require('../middleware/auth');
 const notify = require('../services/notify');
+const { calculateUserPremium } = require('../services/premiumService');
 const router = express.Router();
 
 const razorpay = new Razorpay({
@@ -14,32 +16,37 @@ const razorpay = new Razorpay({
 });
 
 function assertRazorpayConfigured() {
-  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-    const e = new Error('RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are missing');
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+  console.log('[Razorpay Config Check] Key ID present:', !!keyId, '| Key Secret present:', !!keySecret);
+
+  if (!keyId || !keySecret) {
+    const e = new Error('RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are missing from environment variables');
     e.code = 'RAZORPAY_NOT_CONFIGURED';
     throw e;
   }
 }
 
-// Create Razorpay order for premium payment
-router.post('/create-order', auth, async (req, res) => {
+// ── Create Order Controller ───────────────────────────────────────────────────
+const createOrder = async (req, res) => {
   try {
+    console.log('[Razorpay Create Order] User:', req.user?.id, '| Body:', req.body);
     assertRazorpayConfigured();
 
-    const { planType } = req.body;
+    const { planType = 'Premium' } = req.body;
     const user = await User.findById(req.user.id);
 
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     if (user.verificationStatus !== 'approved') {
-      return res.status(403).json({ error: 'Account not verified. Await admin approval.' });
+      return res.status(403).json({ success: false, message: 'Account not verified. Await admin approval.' });
     }
 
-    const PLANS = { basic: 1, standard: 1.5, premium: 2 };
-    const multiplier = PLANS[planType] || 1.5;
-    const amount = Math.round(user.weeklyPremium * multiplier);
-
-    if (amount <= 0) {
-      return res.status(400).json({ error: 'Invalid premium amount' });
-    }
+    const dynamicCalc = await calculateUserPremium(user, null, null, planType);
+    const amount = Math.max(49, dynamicCalc.premiumAmount);
 
     const order = await razorpay.orders.create({
       amount: amount * 100, // paise
@@ -48,6 +55,8 @@ router.post('/create-order', auth, async (req, res) => {
       notes: { userId: user._id.toString(), planType }
     });
 
+    console.log('[Razorpay Create Order] Created order ID:', order.id, '| Amount (INR):', amount);
+
     const payment = new Payment({
       userId: user._id,
       amount,
@@ -55,11 +64,12 @@ router.post('/create-order', auth, async (req, res) => {
       paymentStatus: 'created',
       status: 'created',
       razorpayOrderId: order.id,
-      description: `Weekly premium - ${planType} plan`
+      description: `Premium payment for ${planType} plan`
     });
     await payment.save();
 
-    res.json({
+    return res.json({
+      success: true,
       orderId: order.id,
       amount,
       currency: 'INR',
@@ -67,104 +77,220 @@ router.post('/create-order', auth, async (req, res) => {
       key: process.env.RAZORPAY_KEY_ID
     });
   } catch (err) {
-    const statusCode = err.code === 'RAZORPAY_NOT_CONFIGURED' ? 500 : 500;
-    res.status(statusCode).json({ error: err.message });
+    console.error('[Razorpay Create Order Error] Stack trace:\n', err.stack || err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to create payment order' });
   }
-});
+};
 
-// Verify payment and activate policy
-router.post('/verify', auth, async (req, res) => {
+// ── Verify Payment Controller ────────────────────────────────────────────────
+const verifyPayment = async (req, res) => {
   try {
+    console.log('====================================================');
+    console.log('[Razorpay Verify] Step 1: Authentication user ID:', req.user?.id);
+    console.log('[Razorpay Verify] Step 2: Incoming request body:', req.body);
+
     assertRazorpayConfigured();
 
-    const { razorpayOrderId, razorpayPaymentId, razorpaySignature, paymentId, planType } = req.body;
+    // Support both snake_case and camelCase parameters
+    const razorpayOrderId = req.body.razorpay_order_id || req.body.razorpayOrderId;
+    const razorpayPaymentId = req.body.razorpay_payment_id || req.body.razorpayPaymentId;
+    const razorpaySignature = req.body.razorpay_signature || req.body.razorpaySignature;
+    const dbPaymentId = req.body.paymentId || req.body._id;
+    const planType = req.body.planType || 'Premium';
 
-    const payment = await Payment.findById(paymentId);
-    if (!payment) return res.status(404).json({ error: 'Payment record not found' });
+    console.log('[Razorpay Verify] Step 3: Extracted params ->', {
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature: razorpaySignature ? `${razorpaySignature.substring(0, 10)}...` : null,
+      dbPaymentId,
+      planType
+    });
 
-    // Strict signature verification (Razorpay standard)
-    const body = razorpayOrderId + '|' + razorpayPaymentId;
-    const expectedSig = crypto
+    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+      console.warn('[Razorpay Verify] Missing required payment parameters');
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required payment details (razorpay_order_id, razorpay_payment_id, or razorpay_signature)'
+      });
+    }
+
+    // Razorpay HMAC SHA256 Signature Verification
+    const bodyStr = `${razorpayOrderId}|${razorpayPaymentId}`;
+    const generatedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(body)
+      .update(bodyStr)
       .digest('hex');
 
-    if (expectedSig !== razorpaySignature) {
-      payment.paymentStatus = 'failed';
-      payment.status = 'failed';
-      await payment.save();
-      return res.status(400).json({ error: 'Payment verification failed' });
+    console.log('[Razorpay Verify] Step 4: Signature check ->');
+    console.log('  Generated Signature :', generatedSignature);
+    console.log('  Received Signature  :', razorpaySignature);
+
+    if (generatedSignature !== razorpaySignature) {
+      console.error('[Razorpay Verify] Signature mismatch!');
+      if (dbPaymentId) {
+        await Payment.findByIdAndUpdate(dbPaymentId, { paymentStatus: 'failed', status: 'failed' }).catch(() => {});
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'Signature verification failed. Invalid secret key or payload tampered.'
+      });
+    }
+
+    console.log('[Razorpay Verify] Signature matched successfully!');
+
+    // Fetch user and payment record
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Authenticated user not found in database' });
+    }
+
+    let payment = null;
+    if (dbPaymentId) {
+      payment = await Payment.findById(dbPaymentId);
+    }
+    if (!payment && razorpayOrderId) {
+      payment = await Payment.findOne({ razorpayOrderId });
+    }
+
+    if (!payment) {
+      console.log('[Razorpay Verify] Creating new Payment document...');
+      payment = new Payment({
+        userId: user._id,
+        amount: req.body.amount || 149,
+        type: 'premium',
+        razorpayOrderId,
+        description: `Premium payment for ${planType} plan`
+      });
     }
 
     // Mark payment as success
     payment.paymentStatus = 'success';
     payment.status = 'success';
     payment.razorpayPaymentId = razorpayPaymentId;
+    payment.razorpaySignature = razorpaySignature;
     payment.paymentSignature = razorpaySignature;
-    payment.razorpaySignature = razorpaySignature; // backward compat
     payment.paymentDate = new Date();
-    payment.paidAt = new Date(); // backward compat
+    payment.paidAt = new Date();
     await payment.save();
 
-    // Increment Insurance Pool
-    const InsurancePool = require('../models/InsurancePool');
+    console.log('[Razorpay Verify] Step 5: Saved Payment ID:', payment._id);
+
+    // Update Insurance Pool
     await InsurancePool.findOneAndUpdate(
       {},
       { $inc: { totalPremiumCollected: payment.amount, availablePool: payment.amount }, updatedAt: new Date() },
       { upsert: true }
     );
 
-    // Activate policy only after successful payment
-    const user = await User.findById(req.user.id);
-    const PLANS = {
-      basic: { name: 'Basic Shield', multiplier: 1, coverageMultiplier: 0.5, coverageTypes: ['rainfall', 'aqi'] },
-      standard: { name: 'Standard Guard', multiplier: 1.5, coverageMultiplier: 0.75, coverageTypes: ['rainfall', 'aqi', 'temperature'] },
-      premium: { name: 'Premium Protect', multiplier: 2, coverageMultiplier: 1, coverageTypes: ['rainfall', 'aqi', 'temperature', 'curfew'] }
-    };
-    const plan = PLANS[planType] || PLANS.standard;
+    // Policy Activation / Update (Query policy FIRST before computing dates)
+    let policy = await Policy.findOne({ userId: user._id, policyStatus: 'ACTIVE' }).sort({ createdAt: -1 });
 
-    const existing = await Policy.findOne({ userId: user._id, status: 'active' });
-    if (!existing) {
-      const policy = new Policy({
+    const dynamicCalc = await calculateUserPremium(user, null, null, planType);
+    const durationDays = planType?.toLowerCase().includes('monthly') ? 30 : 30; // Monthly 30 days for parametric plans
+    const startDate = new Date();
+    const endDate = new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+    if (!policy) {
+      const invoiceNo = `INV-${Date.now().toString().slice(-6)}`;
+      policy = new Policy({
         userId: user._id,
-        planName: plan.name,
-        weeklyPremium: Math.round(user.weeklyPremium * plan.multiplier),
-        coverageAmount: Math.round(user.weeklyIncome * plan.coverageMultiplier),
-        coverageType: plan.coverageTypes,
+        planName: dynamicCalc.planName || 'Premium Protect',
+        premiumAmount: payment.amount || dynamicCalc.premiumAmount,
+        weeklyPremium: payment.amount || dynamicCalc.premiumAmount,
+        coverageAmount: dynamicCalc.coverageAmount || 25000,
+        paymentFrequency: 'Monthly',
+        riskLevel: dynamicCalc.riskLevel || 'Medium',
+        calculation: dynamicCalc.calculation,
+        coverageType: ['rainfall', 'aqi', 'temperature', 'curfew'],
         thresholds: { rainfall: 50, aqi: 200, temperature: 42 },
-        status: 'active',
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        policyStatus: 'ACTIVE',
+        status: 'ACTIVE',
+        policyStartDate: startDate,
+        startDate,
+        policyEndDate: endDate,
+        endDate,
+        expiryDate: endDate,
+        nextDueDate: endDate,
+        paidInstallments: 1,
+        lastPaymentDate: startDate,
+        autoRenew: true,
+        paymentHistory: [{
+          invoiceNo,
+          paymentDate: startDate,
+          amount: payment.amount || dynamicCalc.premiumAmount,
+          method: 'Razorpay',
+          status: 'Paid',
+          receiptUrl: `/api/policies/download`
+        }]
       });
-      await policy.save();
-      payment.policyId = policy._id;
-      await payment.save();
-      await notify.policyActivated(req.user.id, plan.name, policy.coverageAmount);
-      await notify.paymentSuccess(req.user.id, payment.amount, plan.name);
-      return res.json({ success: true, policy, payment });
+    } else {
+      policy.policyStatus = 'ACTIVE';
+      policy.status = 'ACTIVE';
+      policy.nextDueDate = endDate;
+      policy.policyEndDate = endDate;
+      policy.endDate = endDate;
+      policy.expiryDate = endDate;
+      policy.premiumAmount = payment.amount || policy.premiumAmount;
+      policy.weeklyPremium = payment.amount || policy.weeklyPremium;
+      policy.calculation = dynamicCalc.calculation;
+      policy.lastPaymentDate = startDate;
+      policy.paidInstallments = (policy.paidInstallments || 1) + 1;
+      policy.paymentHistory.push({
+        invoiceNo: `INV-${Date.now().toString().slice(-6)}`,
+        paymentDate: startDate,
+        amount: payment.amount || policy.premiumAmount,
+        method: 'Razorpay',
+        status: 'Paid',
+        receiptUrl: `/api/policies/${policy._id}/download`
+      });
     }
 
-    await notify.paymentSuccess(req.user.id, payment.amount, 'your plan');
-    return res.json({ success: true, payment });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    await policy.save();
 
-// Get payment history
-router.get('/history', auth, async (req, res) => {
+    payment.policyId = policy._id;
+    await payment.save();
+
+    console.log('[Razorpay Verify] Step 6: Policy saved & linked -> Policy ID:', policy._id);
+
+    // Notifications
+    notify.policyActivated(user._id, policy.planName, policy.coverageAmount).catch(() => {});
+    notify.paymentSuccess(user._id, payment.amount, policy.planName).catch(() => {});
+
+    console.log('====================================================');
+
+    return res.json({
+      success: true,
+      message: 'Payment verified and policy activated successfully',
+      policy,
+      payment
+    });
+  } catch (err) {
+    console.error('====================================================');
+    console.error('[Razorpay Verify Error] Stack trace:\n', err.stack || err);
+    console.error('====================================================');
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Payment verification failed',
+      error: err.message
+    });
+  }
+};
+
+// ── Payment History Controller ───────────────────────────────────────────────
+const getPaymentHistory = async (req, res) => {
   try {
     const payments = await Payment.find({ userId: req.user.id })
       .populate('policyId', 'planName')
       .sort({ createdAt: -1 });
-    res.json(payments);
+    return res.json(payments);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
-});
+};
 
-// Admin: payment stats
-router.get('/stats', auth, async (req, res) => {
+// ── Payment Stats Controller ──────────────────────────────────────────────────
+const getPaymentStats = async (req, res) => {
   try {
     const mongoose = require('mongoose');
     const uid = new mongoose.Types.ObjectId(req.user.id);
@@ -176,7 +302,7 @@ router.get('/stats', auth, async (req, res) => {
       Payment.countDocuments({ userId: uid, status: 'success' }),
       Payment.countDocuments({ userId: uid, status: 'failed' })
     ]);
-    res.json({
+    return res.json({
       totalPremiumsPaid: totalPremiums[0]?.total || 0,
       successCount,
       failedCount,
@@ -185,8 +311,16 @@ router.get('/stats', auth, async (req, res) => {
         : 0
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
-});
+};
+
+// ── Routes Registration ───────────────────────────────────────────────────────
+router.post('/create-order', auth, createOrder);
+router.post('/verify', auth, verifyPayment);
+router.get('/history', auth, getPaymentHistory);
+router.get('/stats', auth, getPaymentStats);
 
 module.exports = router;
+module.exports.verifyPayment = verifyPayment;
+module.exports.createOrder = createOrder;

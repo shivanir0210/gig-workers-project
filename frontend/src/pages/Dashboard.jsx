@@ -1,18 +1,23 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
+import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { Shield, TrendingDown, CheckCircle, Star, MapPin, Bell, Home, Briefcase, AlertTriangle } from 'lucide-react';
+import PolicyAlertBanner from '../components/PolicyAlertBanner';
+import InsuranceStatusWidget from '../components/InsuranceStatusWidget';
 
 const RISK_GLOW  = { none:'#22C55E', low:'#FACC15', medium:'#F97316', high:'#EF4444', extreme:'#EF4444' };
 const RISK_LABEL = { none:'badge-green', low:'badge-yellow', medium:'badge-yellow', high:'badge-red', extreme:'badge-red' };
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [riskData,       setRiskData]       = useState(null);
   const [claimStats,     setClaimStats]     = useState({ total:0, paid:0, pending:0, totalPayout:0 });
   const [policy,         setPolicy]         = useState(null);
+  const [policyStatusData, setPolicyStatusData] = useState(null);
   const [prediction,     setPrediction]     = useState(null);
   const [paymentStats,   setPaymentStats]   = useState(null);
   const [gps,            setGps]            = useState(null);
@@ -21,6 +26,12 @@ export default function Dashboard() {
   const [locationAlerts, setLocationAlerts] = useState([]);
   const [dualEligibility,setDualEligibility]= useState(null);
   const watchRef = useRef(null);
+
+  const fetchPolicyStatus = () => {
+    api.get('/policy/status')
+      .then(r => setPolicyStatusData(r.data))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -33,7 +44,8 @@ export default function Dashboard() {
       }
     }).catch(() => {});
     api.get('/claims/stats').then(r => setClaimStats(r.data)).catch(() => {});
-    api.get('/policies/my').then(r => setPolicy(r.data.find(p => p.status === 'active'))).catch(() => {});
+    api.get('/policies/my').then(r => setPolicy(r.data.find(p => p.status === 'active' || p.policyStatus === 'ACTIVE'))).catch(() => {});
+    fetchPolicyStatus();
     api.get('/payments/stats').then(r => setPaymentStats(r.data)).catch(() => {});
     api.post('http://localhost:8000/income-prediction', { city: user.location.city, weeklyIncome: user.weeklyIncome })
       .then(r => setPrediction(r.data)).catch(() => {});
@@ -55,6 +67,34 @@ export default function Dashboard() {
     }
     return () => { if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current); };
   }, [user]);
+
+  const handlePayPremium = async () => {
+    const nextDue = policy?.nextDueDate ? new Date(policy.nextDueDate) : null;
+    if (nextDue && new Date() < nextDue) {
+      const formattedNextDue = nextDue.toLocaleDateString('en-GB');
+      toast.error(`Premium already paid. Next premium is due on ${formattedNextDue}.`);
+      return;
+    }
+    try {
+      const res = await api.post('/policy/pay-premium', { paymentMethod: 'UPI' });
+      toast.success(res.data.message || 'Premium paid successfully!');
+      fetchPolicyStatus();
+      api.get('/policies/my').then(r => setPolicy(r.data.find(p => p.status === 'active' || p.policyStatus === 'ACTIVE'))).catch(() => {});
+    } catch (err) {
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to pay premium');
+    }
+  };
+
+  const handleRenewPolicy = async () => {
+    try {
+      const res = await api.post('/policy/renew');
+      toast.success(res.data.message || 'Policy renewed successfully!');
+      fetchPolicyStatus();
+      api.get('/policies/my').then(r => setPolicy(r.data.find(p => p.status === 'active' || p.policyStatus === 'ACTIVE'))).catch(() => {});
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to renew policy');
+    }
+  };
 
   const hasDocs = user?.aadhaarCardUrl || user?.workerIdCardUrl || user?.platformScreenshotUrl;
   const isApproved = user?.verificationStatus === 'approved';
@@ -102,6 +142,17 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Policy Alerts & Reminders Banner */}
+      {policyStatusData?.alerts && (
+        <PolicyAlertBanner
+          alerts={policyStatusData.alerts}
+          policyStatus={policyStatusData.policyStatus}
+          onPayPremium={handlePayPremium}
+          onRenewPolicy={handleRenewPolicy}
+          onActivatePolicy={() => navigate('/policies')}
+        />
+      )}
 
       {/* Verification & Coverage Status Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -156,51 +207,20 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Coverage Status Widget */}
-        <div className="card p-4 sm:p-5 flex flex-col justify-between"
-          style={hasPolicy ? { borderColor: 'rgba(34,197,94,0.3)' } : { borderColor: 'rgba(239,68,68,0.2)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-white">Coverage Widget</h3>
-            <span className={`badge-${hasPolicy ? 'green' : 'red'}`}>
-              {hasPolicy ? 'ACTIVE' : 'INACTIVE'}
-            </span>
-          </div>
-
-          {hasPolicy ? (
-            <div className="space-y-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-bold text-white text-base">{policy.planName}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Coverage Amount: <span className="text-white font-semibold">₹{policy.coverageAmount}</span></p>
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-bold text-green-500">{daysRemaining} Days</p>
-                  <p className="text-[10px] text-gray-500 uppercase">Remaining</p>
-                </div>
-              </div>
-              
-              <div className="pt-2 grid grid-cols-2 gap-2 text-xs" style={{ borderTop: '1px solid #1F2937' }}>
-                <div>
-                  <span className="text-gray-500 block">Start Date</span>
-                  <span className="text-gray-300">{new Date(policy.startDate).toLocaleDateString()}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500 block">End Date / Next Premium</span>
-                  <span className="text-gray-300">{new Date(policy.endDate).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-400">
-                No active Parametric Coverage. Choose a protective plan to safeguard your weekly income against weather disruptions.
-              </p>
-              <Link to="/policies" className="btn-neon w-full py-2.5 text-center text-xs flex items-center justify-center gap-1.5" style={{ minHeight: '44px' }}>
-                <Shield size={14} /> Buy Parametric Policy
-              </Link>
-            </div>
-          )}
-        </div>
+        {/* Insurance Status Widget */}
+        <InsuranceStatusWidget
+          statusData={policyStatusData || {
+            policyStatus: hasPolicy ? 'ACTIVE' : 'INACTIVE',
+            planName: policy ? policy.planName : 'No Plan',
+            premiumAmount: policy ? (policy.premiumAmount || policy.weeklyPremium) : 0,
+            paymentFrequency: policy ? (policy.paymentFrequency || 'Weekly') : 'Weekly',
+            nextDueDate: policy ? (policy.nextDueDate || policy.endDate) : null,
+            daysRemaining,
+            coverageStatus: hasPolicy ? 'Protected' : 'Unprotected'
+          }}
+          onPayPremium={handlePayPremium}
+          onRenewPolicy={handleRenewPolicy}
+        />
 
       </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api';
 import {
@@ -40,7 +40,6 @@ const adminNavItems = [
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
-  const location = useLocation();
   const navigate  = useNavigate();
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -48,7 +47,6 @@ export default function Layout({ children }) {
   const isAdmin = user?.role === 'admin';
   const navItems = isAdmin ? adminNavItems : userNavItems;
 
-  const handleNav = (path) => { navigate(path); setOpen(false); };
   const handleLogout = () => {
     const role = logout();
     navigate(role === 'admin' ? '/admin/login' : '/login');
@@ -69,13 +67,15 @@ export default function Layout({ children }) {
   const accentColor = isAdmin ? '#F59E0B' : '#3B82F6';
   const accentGrad  = isAdmin ? 'linear-gradient(135deg,#F59E0B,#EF4444)' : 'linear-gradient(135deg,#22C55E,#3B82F6)';
 
-  const NavLink = ({ path, label, icon: Icon }) => {
-    const active  = location.pathname === path;
+  const SidebarLink = ({ path, label, icon: Icon }) => {
     const isNotif = path === '/notifications';
     return (
-      <button onClick={() => handleNav(path)}
-        className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-sm font-medium transition-all text-left relative"
-        style={active
+      <NavLink
+        to={path}
+        end
+        onClick={() => setOpen(false)}
+        className={({ isActive }) => `flex items-center gap-3 w-full px-3 py-3 rounded-xl text-sm font-medium transition-all text-left relative ${isActive ? 'active-admin-link' : 'text-gray-400 hover:text-white'}`}
+        style={({ isActive }) => isActive
           ? { background: `rgba(${isAdmin?'245,158,11':'59,130,246'},0.15)`, color: accentColor, boxShadow: `0 0 12px rgba(${isAdmin?'245,158,11':'59,130,246'},0.2)` }
           : { color: '#6B7280' }}>
         <Icon size={16} />
@@ -85,7 +85,7 @@ export default function Layout({ children }) {
             {unreadCount}
           </span>
         )}
-      </button>
+      </NavLink>
     );
   };
 
@@ -127,7 +127,7 @@ export default function Layout({ children }) {
         style={{ background: '#0D1526', borderRight: '1px solid #1F2937' }}>
         <SidebarHeader />
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {navItems.map(item => <NavLink key={item.path} {...item} />)}
+          {navItems.map(item => <SidebarLink key={item.path} {...item} />)}
         </nav>
         <SidebarFooter />
       </aside>
@@ -159,7 +159,7 @@ export default function Layout({ children }) {
           </p>
         </div>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {navItems.map(item => <NavLink key={item.path} {...item} />)}
+          {navItems.map(item => <SidebarLink key={item.path} {...item} />)}
         </nav>
         <SidebarFooter mobile />
       </aside>

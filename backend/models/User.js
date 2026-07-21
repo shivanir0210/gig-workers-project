@@ -2,23 +2,29 @@ const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
   name:     { type: String, required: true },
-  email:    { type: String, required: true, unique: true },
+  email:    { type: String, required: true, unique: true, trim: true },
   password: { type: String, required: true },
-  phone:    { type: String, required: true },
+  phone:    { type: String, required: true, unique: true },
 
   // Platform
   platform:       { type: String, enum: ['Swiggy', 'Zomato', 'Zepto', 'Blinkit', 'Dunzo', 'Other'], required: true },
   customPlatform: { type: String },
-  workerId: { type: String, sparse: true },
+  workerId: { type: String, unique: true, sparse: true },
 
   // Verification
-  aadhaarNumber:       { type: String },
+  aadhaarNumber:       { type: String, unique: true, sparse: true },
+  enteredAadhaar:      { type: String, sparse: true },
+  ocrAadhaar:          { type: String, sparse: true },
+  ocrConfidence:       { type: Number, min: 0, max: 100 },
   idProofUrl:          { type: String },
   profileScreenshotUrl:{ type: String },
   workerIdCardUrl:     { type: String },
   aadhaarCardUrl:      { type: String },
   platformScreenshotUrl:{ type: String },
-  verificationStatus:  { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  verificationStatus:  { type: String, enum: ['pending','pending_manual_review','auto_verified','approved','rejected','failed'], default: 'pending' },
+  verificationMessage: { type: String },
+  verifiedBy:          { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  verifiedAt:          { type: Date },
   verificationDate:    { type: Date },
 
   // Role

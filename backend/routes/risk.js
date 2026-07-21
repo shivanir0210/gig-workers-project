@@ -8,15 +8,55 @@ const router = express.Router();
 router.get('/current/:city', async (req, res) => {
   try {
     const city = req.params.city;
-    const weather = await fetchWeatherData(city);
-    const aqiData = await fetchAQIData(city);
-    const disruptionLevel = getDisruptionLevel(weather, aqiData.aqi);
+    const latestRisk = await RiskData.findOne({ city: new RegExp(`^${city}$`, 'i') }).sort({ recordedAt: -1 });
+
+    let weather, aqiData, disruptionLevel;
+    if (latestRisk && latestRisk.recordedAt && (Date.now() - new Date(latestRisk.recordedAt).getTime() < 2 * 60 * 60 * 1000)) {
+      weather = latestRisk.weather;
+      aqiData = { aqi: latestRisk.aqi, category: latestRisk.aqiCategory || 'Moderate' };
+      disruptionLevel = latestRisk.disruptionLevel;
+    } else {
+      weather = await fetchWeatherData(city);
+      aqiData = await fetchAQIData(city);
+      disruptionLevel = getDisruptionLevel(weather, aqiData.aqi);
+    }
+
     const alerts = [];
     if (weather.rainfall > 50) alerts.push(`Heavy rainfall: ${weather.rainfall}mm`);
     if (aqiData.aqi > 200) alerts.push(`Poor AQI: ${aqiData.aqi}`);
     if (weather.temperature > 42) alerts.push(`Extreme heat: ${weather.temperature}°C`);
 
     res.json({ city, weather, aqi: aqiData.aqi, aqiCategory: aqiData.category, disruptionLevel, alerts });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Weather simulation endpoint for testing
+router.post('/simulate', async (req, res) => {
+  try {
+    const { city = 'Mumbai', rainfall = 0, aqi = 50, temperature = 30, disruptionLevel } = req.body;
+    const weather = { rainfall, temperature, humidity: 80, windSpeed: 15, description: rainfall > 30 ? 'heavy rain' : 'clear sky' };
+    const level = disruptionLevel || getDisruptionLevel(weather, aqi);
+
+    const alerts = [];
+    if (rainfall > 35) alerts.push(`Heavy rainfall: ${rainfall}mm`);
+    if (aqi > 200) alerts.push(`Poor AQI: ${aqi}`);
+
+    const risk = new RiskData({
+      city,
+      lat: CITY_COORDS[city]?.lat || 19.076,
+      lng: CITY_COORDS[city]?.lng || 72.877,
+      weather,
+      aqi,
+      aqiCategory: aqi > 200 ? 'Poor' : 'Good',
+      disruptionLevel: level,
+      alerts,
+      recordedAt: new Date()
+    });
+    await risk.save();
+
+    res.json({ success: true, message: `Simulated weather for ${city}`, risk });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

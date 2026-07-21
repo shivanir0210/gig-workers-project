@@ -35,14 +35,18 @@ export default function Claims() {
   const [expanded,   setExpanded]   = useState(null);
   const [eligibility,setEligibility]= useState(null);
 
+  const [policyStatusInfo, setPolicyStatusInfo] = useState(null);
+
   const fetchAll = async () => {
-    const [c, p, e] = await Promise.all([
+    const [c, p, e, ps] = await Promise.all([
       api.get('/claims/my').catch(() => ({ data:[] })),
       api.get('/claims/payouts').catch(() => ({ data:[] })),
-      api.post('/alerts/dual-check').catch(() => ({ data: null }))
+      api.post('/alerts/dual-check').catch(() => ({ data: null })),
+      api.get('/policy/status').catch(() => ({ data: null }))
     ]);
     setClaims(c.data); setPayouts(p.data);
     if (e.data) setEligibility(e.data);
+    if (ps?.data) setPolicyStatusInfo(ps.data);
     setLoading(false);
   };
   useEffect(() => { fetchAll(); }, []);
@@ -71,6 +75,25 @@ export default function Claims() {
           <Zap size={10}/> Auto-Trigger
         </div>
       </div>
+
+      {/* Policy Status Alert Banner */}
+      {policyStatusInfo && policyStatusInfo.policyStatus !== 'ACTIVE' && (
+        <div className="rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg"
+          style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
+          <div className="flex items-center gap-2.5">
+            <XCircle size={20} className="text-red-500 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-red-400">No Active Policy</p>
+              <p className="text-xs text-gray-300">
+                No active insurance policy found. Please activate a policy before submitting a claim.
+              </p>
+            </div>
+          </div>
+          <a href="/policies" className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition flex-shrink-0">
+            Activate Policy
+          </a>
+        </div>
+      )}
 
       {/* Dual-city eligibility banner */}
       {eligibility && (

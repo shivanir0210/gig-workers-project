@@ -17,7 +17,7 @@ export default function AdminLogin() {
       await adminLogin(form.email, form.password);
       navigate('/admin/dashboard');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Invalid admin credentials');
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Invalid admin credentials');
     } finally { setLoading(false); }
   };
 

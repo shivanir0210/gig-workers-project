@@ -17,8 +17,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password) => {
-    const res = await api.post('/users/login', { email, password });
-    if (res.data.user.role !== 'user') throw new Error('Use admin login');
+    const cleanEmail = typeof email === 'string' ? email.trim() : email;
+    const res = await api.post('/users/login', { email: cleanEmail, password });
     localStorage.setItem('token', res.data.token);
     setUser(res.data.user);
     return res.data;
