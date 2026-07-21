@@ -79,6 +79,16 @@ router.get('/plans', auth, async (req, res) => {
   }
 });
 
+// ── User Policies Listing ─────────────────────────────────────────────────────
+router.get('/my', auth, async (req, res) => {
+  try {
+    const policies = await Policy.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    res.json(policies);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Single Policy Detail & PDF Downloads ──────────────────────────────────────
 router.get('/:id', auth, policyController.getPolicyDetails);
 router.post('/:id/pay', auth, policyController.payPolicyPremium);
@@ -130,14 +140,7 @@ router.post('/create', auth, async (req, res) => {
   }
 });
 
-router.get('/my', auth, async (req, res) => {
-  try {
-    const policies = await Policy.find({ userId: req.user.id }).sort({ createdAt: -1 });
-    res.json(policies);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+
 
 router.put('/:id/cancel', auth, async (req, res) => {
   try {

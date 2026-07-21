@@ -1,11 +1,9 @@
+import os
 import base64
 import io
 import re
 import joblib
 import pandas as pd
-model = joblib.load("income_loss_model.pkl")
-
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
@@ -17,9 +15,9 @@ from pdf2image import convert_from_bytes
 app = Flask(__name__)
 CORS(app)
 
-# Load the trained ML model and encoder
-model = joblib.load("income_loss_model.pkl")
-
+# Load the trained ML model cleanly using relative path
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "income_loss_model.pkl")
+model = joblib.load(MODEL_PATH)
 
 CITY_RISK_SCORES = {
     'Mumbai': 0.85, 'Delhi': 0.90, 'Bangalore': 0.60,
@@ -46,7 +44,7 @@ def get_risk_level(city, weekly_income):
 
 @app.route('/predict-risk', methods=['POST'])
 def predict_risk():
-    data = request.json
+    data = request.json or {}
     city = data.get('city', 'Mumbai')
     weekly_income = float(data.get('weeklyIncome', 3000))
     platform = data.get('platform', 'Other')
@@ -62,7 +60,6 @@ def predict_risk():
 def normalize_text(text):
     return (text or '').replace('\n', ' ').replace('\r', ' ').strip()
 
-
 def extract_aadhaar(text):
     if not text:
         return ''
@@ -74,7 +71,6 @@ def extract_aadhaar(text):
         return condensed[:12]
     return ''
 
-
 def ocr_image(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray = cv2.bilateralFilter(gray, 9, 75, 75)
@@ -85,7 +81,6 @@ def ocr_image(image):
     confidences = [int(conf) for conf in data['conf'] if conf.isdigit() and int(conf) >= 0]
     confidence = int(np.mean(confidences)) if confidences else 0
     return normalize_text(text), confidence
-
 
 def load_image_from_base64(data_url):
     match = re.match(r'^data:(.*?);base64,(.*)$', data_url)
@@ -103,13 +98,11 @@ def load_image_from_base64(data_url):
     open_cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     return open_cv_image, raw_data
 
-
 @app.route('/verify-aadhaar', methods=['POST'])
 def verify_aadhaar():
-    data = request.json
+    data = request.json or {}
     name = data.get('name')
     base64_data = data.get('base64')
-    entered = data.get('aadhaarNumber', '')
     if not name or not base64_data:
         return jsonify({'error': 'Missing name or base64 data'}), 400
 
@@ -126,10 +119,9 @@ def verify_aadhaar():
         'rawText': text
     })
 
-
 @app.route('/income-prediction', methods=['POST'])
 def income_prediction():
-    data = request.json
+    data = request.json or {}
 
     weekly_income = float(data.get('weeklyIncome', 3000))
     rainfall = float(data.get('rainfall', 0))
@@ -141,12 +133,12 @@ def income_prediction():
 
     input_df = pd.DataFrame([{
         "Rainfall(mm)": rainfall,
-    "AQI": aqi,
-    "Temperature(C)": temperature,
-    "Humidity(%)": humidity,
-    "WeeklyIncome(₹)": weekly_income,
-    "OrdersPerDay": orders_per_day,
-    "OnlineHours": online_hours
+        "AQI": aqi,
+        "Temperature(C)": temperature,
+        "Humidity(%)": humidity,
+        "WeeklyIncome(₹)": weekly_income,
+        "OrdersPerDay": orders_per_day,
+        "OnlineHours": online_hours
     }])
 
     estimated_loss = round(float(model.predict(input_df)[0]), 2)
@@ -165,7 +157,7 @@ def income_prediction():
 
 @app.route('/fraud-detection', methods=['POST'])
 def fraud_detection():
-    data = request.json
+    data = request.json or {}
     trust_score = float(data.get('trustScore', 100))
     claims_last_week = int(data.get('claimsLastWeek', 0))
     gps_verified = bool(data.get('gpsVerified', True))
@@ -187,5 +179,6 @@ def fraud_detection():
 def health():
     return jsonify({'status': 'ok'})
 
-if __name__ == '__main__':
-    app.run(port=8000, debug=True)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
